@@ -1,23 +1,18 @@
 import { Wrench } from 'lucide-react';
 import { registerDomain } from '@/core/domain-registry';
 import type { DomainPack } from '@/core/types/domain-pack';
-
-// Stub domain pack used to prove the multi-domain plumbing. The backend
-// executor (app/backend/domains/bug_fix) simulates a Jira-bug fix flow;
-// here we only contribute a switcher entry. RunForm/ResultView land in
-// a later phase when the generic run experience is built.
-const NoopComponent = () => null;
+import { BugFixRunDialog } from './run-dialog';
 
 const bugFixDomain: DomainPack = {
   id: 'bug_fix',
   name: 'Bug Fix',
-  description: 'Jira → patch → PR (stub)',
+  description: 'Jira → patch → PR',
   icon: Wrench,
   nodeTypes: [],
-  // Stub: no draggable components yet; the palette will show its empty state.
+  // No draggable components yet — the palette shows its empty state and the
+  // user drives runs entirely through the RunDialog.
   getComponentGroups: async () => [],
-  RunForm: NoopComponent,
-  ResultView: NoopComponent,
+  RunDialog: BugFixRunDialog,
 };
 
 registerDomain(bugFixDomain);

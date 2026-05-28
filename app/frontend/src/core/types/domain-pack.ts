@@ -40,17 +40,13 @@ export interface DomainPack {
   getComponentGroups: () => Promise<ComponentGroup[]>;
 
   /**
-   * Form rendered when the user clicks Run. Receives a callback that
-   * should be invoked with the domain-specific request payload; the
-   * platform attaches `flow_id`, `graph_nodes`, `graph_edges`, etc.
+   * Optional self-contained run UI. When present, the platform exposes a
+   * Run button next to the domain switcher that opens this dialog. The
+   * dialog owns its own form, submission, SSE consumption, and result
+   * display — domains that drive runs via the canvas (e.g. finance) can
+   * leave this undefined.
    */
-  RunForm: ComponentType<DomainRunFormProps>;
-
-  /**
-   * Renderer for a completed run's `results` blob. Used by the History
-   * tab when expanding a row, and by the Output tab while streaming.
-   */
-  ResultView: ComponentType<DomainResultViewProps>;
+  RunDialog?: ComponentType<DomainRunDialogProps>;
 }
 
 export interface DomainNodeType {
@@ -62,22 +58,7 @@ export interface DomainNodeType {
   defaultData?: Record<string, unknown>;
 }
 
-export interface DomainComponentGroup {
-  id: string;
-  label: string;
-  /** Ids of DomainNodeType entries shown under this group. */
-  nodeTypeIds: string[];
-}
-
-export interface DomainRunFormProps {
-  /** Called by the form when the user submits — payload is forwarded to
-   *  the backend executor for this domain. */
-  onSubmit: (payload: Record<string, unknown>) => void;
-  /** Whether a run is already in flight, so the form can disable submit. */
-  isRunning: boolean;
-}
-
-export interface DomainResultViewProps {
-  /** The `results` blob produced by the backend executor. */
-  result: Record<string, unknown>;
+export interface DomainRunDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
