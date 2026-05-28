@@ -8,9 +8,12 @@ from app.backend.database.connection import engine
 from app.backend.database.models import Base
 from app.backend.services.ollama_service import ollama_service
 
-# Importing domain packs triggers their executor_registry.register(...) side effect.
-import app.backend.domains.finance  # noqa: F401
-import app.backend.domains.bug_fix  # noqa: F401
+# Importing each domain's `pack` module triggers its executor registration.
+# The `pack` indirection keeps registration out of the package __init__,
+# so e.g. `domains.finance.agents.*` can be imported without dragging the
+# schemas → executor → schemas cycle into the import graph.
+import app.backend.domains.finance.pack  # noqa: F401
+import app.backend.domains.bug_fix.pack  # noqa: F401
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

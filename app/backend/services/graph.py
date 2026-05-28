@@ -5,8 +5,8 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import END, StateGraph
 
 from app.backend.services.agent_service import create_agent_function
-from src.agents.portfolio_manager import portfolio_management_agent
-from src.agents.risk_manager import risk_management_agent
+from app.backend.domains.finance.agents.portfolio_manager import portfolio_management_agent
+from app.backend.domains.finance.agents.risk_manager import risk_management_agent
 from src.main import start
 from src.utils.analysts import ANALYST_CONFIG
 from src.graph.state import AgentState

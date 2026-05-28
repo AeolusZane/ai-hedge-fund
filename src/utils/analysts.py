@@ -1,25 +1,25 @@
 """Constants and utilities related to analysts configuration."""
 
-from src.agents import portfolio_manager
-from src.agents.aswath_damodaran import aswath_damodaran_agent
-from src.agents.ben_graham import ben_graham_agent
-from src.agents.bill_ackman import bill_ackman_agent
-from src.agents.cathie_wood import cathie_wood_agent
-from src.agents.charlie_munger import charlie_munger_agent
-from src.agents.fundamentals import fundamentals_analyst_agent
-from src.agents.michael_burry import michael_burry_agent
-from src.agents.phil_fisher import phil_fisher_agent
-from src.agents.peter_lynch import peter_lynch_agent
-from src.agents.sentiment import sentiment_analyst_agent
-from src.agents.stanley_druckenmiller import stanley_druckenmiller_agent
-from src.agents.technicals import technical_analyst_agent
-from src.agents.valuation import valuation_analyst_agent
-from src.agents.warren_buffett import warren_buffett_agent
-from src.agents.rakesh_jhunjhunwala import rakesh_jhunjhunwala_agent
-from src.agents.mohnish_pabrai import mohnish_pabrai_agent
-from src.agents.nassim_taleb import nassim_taleb_agent
-from src.agents.news_sentiment import news_sentiment_agent
-from src.agents.growth_agent import growth_analyst_agent
+from app.backend.domains.finance.agents import portfolio_manager
+from app.backend.domains.finance.agents.aswath_damodaran import aswath_damodaran_agent
+from app.backend.domains.finance.agents.ben_graham import ben_graham_agent
+from app.backend.domains.finance.agents.bill_ackman import bill_ackman_agent
+from app.backend.domains.finance.agents.cathie_wood import cathie_wood_agent
+from app.backend.domains.finance.agents.charlie_munger import charlie_munger_agent
+from app.backend.domains.finance.agents.fundamentals import fundamentals_analyst_agent
+from app.backend.domains.finance.agents.michael_burry import michael_burry_agent
+from app.backend.domains.finance.agents.phil_fisher import phil_fisher_agent
+from app.backend.domains.finance.agents.peter_lynch import peter_lynch_agent
+from app.backend.domains.finance.agents.sentiment import sentiment_analyst_agent
+from app.backend.domains.finance.agents.stanley_druckenmiller import stanley_druckenmiller_agent
+from app.backend.domains.finance.agents.technicals import technical_analyst_agent
+from app.backend.domains.finance.agents.valuation import valuation_analyst_agent
+from app.backend.domains.finance.agents.warren_buffett import warren_buffett_agent
+from app.backend.domains.finance.agents.rakesh_jhunjhunwala import rakesh_jhunjhunwala_agent
+from app.backend.domains.finance.agents.mohnish_pabrai import mohnish_pabrai_agent
+from app.backend.domains.finance.agents.nassim_taleb import nassim_taleb_agent
+from app.backend.domains.finance.agents.news_sentiment import news_sentiment_agent
+from app.backend.domains.finance.agents.growth_agent import growth_analyst_agent
 
 # Define analyst configuration - single source of truth
 ANALYST_CONFIG = {
