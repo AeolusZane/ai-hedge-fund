@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { PanelBottom, PanelLeft, PanelRight, Settings } from 'lucide-react';
+import { DomainSwitcher } from './domain-switcher';
 
 interface TopBarProps {
   isLeftCollapsed: boolean;
@@ -23,6 +24,12 @@ export function TopBar({
 }: TopBarProps) {
   return (
     <div className="absolute top-0 right-0 z-40 flex items-center gap-0 py-1 px-2 bg-panel/80">
+      {/* Workflow domain switcher */}
+      <DomainSwitcher />
+
+      {/* Divider */}
+      <div className="w-px h-5 bg-ramp-grey-700 mx-1" />
+
       {/* Left Sidebar Toggle */}
       <Button
         variant="ghost"

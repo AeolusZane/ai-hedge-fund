@@ -5,6 +5,10 @@ import App from './App';
 import { NodeProvider } from './contexts/node-context';
 import { ThemeProvider } from './providers/theme-provider';
 
+// Importing a domain pack triggers its registerDomain(...) side effect.
+// Add new domains here to make them selectable in the switcher.
+import './domains/finance';
+
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
