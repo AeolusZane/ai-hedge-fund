@@ -1,17 +1,31 @@
-import { Wrench } from 'lucide-react';
+import { Brain, Code, GitPullRequest, Inbox, TestTube, Wrench } from 'lucide-react';
 import { registerDomain } from '@/core/domain-registry';
 import type { DomainPack } from '@/core/types/domain-pack';
 import { BugFixRunDialog } from './run-dialog';
 
+// Phase E1: the canvas can host bug-fix stage tiles, but the Run button still
+// drives execution through the RunDialog. A later phase will read the
+// canvas graph and post graph_nodes/edges to /workflows/bug_fix/run.
 const bugFixDomain: DomainPack = {
   id: 'bug_fix',
   name: 'Bug Fix',
   description: 'Jira → patch → PR',
   icon: Wrench,
   nodeTypes: [],
-  // No draggable components yet — the palette shows its empty state and the
-  // user drives runs entirely through the RunDialog.
-  getComponentGroups: async () => [],
+  getComponentGroups: async () => [
+    {
+      name: 'Bug Fix Stages',
+      icon: Wrench,
+      iconColor: 'text-amber-500',
+      items: [
+        { name: 'Fetch Jira', icon: Inbox },
+        { name: 'Analyze', icon: Brain },
+        { name: 'Patch', icon: Code },
+        { name: 'Test', icon: TestTube },
+        { name: 'Open PR', icon: GitPullRequest },
+      ],
+    },
+  ],
   RunDialog: BugFixRunDialog,
 };
 

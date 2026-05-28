@@ -39,8 +39,38 @@ export const extractBaseAgentKey = (uniqueId: string): string => {
   return uniqueId; // Return original if no suffix pattern found
 };
 
+// One factory for every bug_fix stage tile so we don't repeat the boilerplate.
+const bugFixStage = (name: string, description: string): NodeTypeDefinition => ({
+  createNode: (position) => ({
+    id: `${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${generateUniqueIdSuffix()}`,
+    type: 'bug-fix-stage-node',
+    position,
+    data: { name, description, status: 'Idle' },
+  }),
+});
+
 // Define base node creation functions (non-agent nodes)
 const baseNodeTypeDefinitions: Record<string, NodeTypeDefinition> = {
+  "Fetch Jira": bugFixStage(
+    "Fetch Jira",
+    "Pull the issue summary, status, and comments from Jira via MCP."
+  ),
+  "Analyze": bugFixStage(
+    "Analyze",
+    "Reason about the root cause from the Jira description + linked code."
+  ),
+  "Patch": bugFixStage(
+    "Patch",
+    "Apply a code change that addresses the root cause."
+  ),
+  "Test": bugFixStage(
+    "Test",
+    "Run tests / lint to validate the patch."
+  ),
+  "Open PR": bugFixStage(
+    "Open PR",
+    "Open a pull request and link it back to the Jira issue."
+  ),
   "Portfolio Input": {
     createNode: (position: { x: number, y: number }): AppNode => ({
       id: `portfolio-start-node_${generateUniqueIdSuffix()}`,
