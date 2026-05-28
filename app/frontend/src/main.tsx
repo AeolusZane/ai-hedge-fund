@@ -8,6 +8,7 @@ import { ThemeProvider } from './providers/theme-provider';
 // Importing a domain pack triggers its registerDomain(...) side effect.
 // Add new domains here to make them selectable in the switcher.
 import './domains/finance';
+import './domains/bug-fix';
 
 import './index.css';
 
