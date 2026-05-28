@@ -1,11 +1,11 @@
 import { useLayoutContext } from '@/contexts/layout-context';
 import { useResizable } from '@/hooks/use-resizable';
 import { cn } from '@/lib/utils';
-import { FileText, X } from 'lucide-react';
+import { FileText, History, X } from 'lucide-react';
 import { ReactNode, useEffect } from 'react';
 import { Button } from '../../ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../ui/tabs';
-import { OutputTab } from './tabs';
+import { HistoryTab, OutputTab } from './tabs';
 
 interface BottomPanelProps {
   children?: ReactNode;
@@ -64,12 +64,19 @@ export function BottomPanel({
         <Tabs value={currentBottomTab} onValueChange={setBottomPanelTab} className="flex-1">
           <div className="flex items-center justify-between">
             <TabsList className="bg-transparent border-none p-0 h-auto">
-              <TabsTrigger 
+              <TabsTrigger
                 value="output"
                 className="flex items-center gap-2 px-3 py-1.5 text-sm data-[state=active]:active-item text-muted-foreground"
               >
                 <FileText size={14} />
                 Output
+              </TabsTrigger>
+              <TabsTrigger
+                value="history"
+                className="flex items-center gap-2 px-3 py-1.5 text-sm data-[state=active]:active-item text-muted-foreground"
+              >
+                <History size={14} />
+                History
               </TabsTrigger>
             </TabsList>
             
@@ -91,6 +98,9 @@ export function BottomPanel({
         <Tabs value={currentBottomTab} className="h-full">
           <TabsContent value="output" className="h-full m-0 p-4">
             <OutputTab className="h-full" />
+          </TabsContent>
+          <TabsContent value="history" className="h-full m-0 p-0">
+            <HistoryTab className="h-full" />
           </TabsContent>
         </Tabs>
       </div>

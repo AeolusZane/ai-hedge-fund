@@ -83,7 +83,7 @@ function LayoutContent({ children }: { children: ReactNode }) {
   // Calculate main content positioning accounting for tab bar height
   const getMainContentStyle = () => {
     const tabBarHeight = 40; // Approximate tab bar height
-    let top = tabBarHeight;
+    const top = tabBarHeight;
     let bottom = 0;
     
     if (!isBottomCollapsed) {

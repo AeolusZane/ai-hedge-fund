@@ -4,6 +4,8 @@ import { LanguageModel } from '@/data/models';
 import { extractBaseAgentKey } from '@/data/node-mappings';
 import { flowConnectionManager } from '@/hooks/use-flow-connection';
 import {
+  FlowRunDetail,
+  FlowRunSummary,
   HedgeFundRequest
 } from '@/services/types';
 
@@ -78,6 +80,24 @@ export const api = {
   },
 
   /**
+   * Lists flow runs for a given flow (history).
+   */
+  getFlowRuns: async (flowId: number, limit = 50): Promise<FlowRunSummary[]> => {
+    const response = await fetch(`${API_BASE_URL}/flows/${flowId}/runs/?limit=${limit}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  },
+
+  /**
+   * Fetches full details (including results JSON) for a single flow run.
+   */
+  getFlowRun: async (flowId: number, runId: number): Promise<FlowRunDetail> => {
+    const response = await fetch(`${API_BASE_URL}/flows/${flowId}/runs/${runId}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  },
+
+  /**
    * Runs a hedge fund simulation with the given parameters and streams the results
    * @param params The hedge fund request parameters
    * @param nodeContext Node context for updating node states
@@ -97,8 +117,12 @@ export const api = {
     // Helper function to get agent IDs from graph structure
     const getAgentIds = () => params.graph_nodes.map(node => node.id);
 
-    // Pass the unique node IDs directly to the backend
-    const backendParams = params;
+    // Pass the unique node IDs directly to the backend, plus flow_id for run persistence
+    const parsedFlowId = flowId != null ? Number(flowId) : null;
+    const backendParams = {
+      ...params,
+      ...(parsedFlowId != null && !Number.isNaN(parsedFlowId) ? { flow_id: parsedFlowId } : {}),
+    };
 
     // For SSE connections with FastAPI, we need to use POST
     // First, create the controller

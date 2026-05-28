@@ -10,6 +10,8 @@ from app.backend.services.graph import create_graph, parse_hedge_fund_response, 
 from app.backend.services.portfolio import create_portfolio
 from app.backend.services.backtest_service import BacktestService
 from app.backend.services.api_key_service import ApiKeyService
+from app.backend.repositories.flow_run_repository import FlowRunRepository
+from app.backend.models.schemas import FlowRunStatus
 from src.utils.progress import progress
 from src.utils.analysts import get_agents_list
 
@@ -29,6 +31,16 @@ async def run(request_data: HedgeFundRequest, request: Request, db: Session = De
         if not request_data.api_keys:
             api_key_service = ApiKeyService(db)
             request_data.api_keys = api_key_service.get_api_keys_dict()
+
+        # Create a FlowRun record if this run is bound to a flow
+        flow_run_repo = FlowRunRepository(db)
+        flow_run = None
+        if request_data.flow_id is not None:
+            flow_run = flow_run_repo.create_flow_run(
+                flow_id=request_data.flow_id,
+                request_data=request_data.model_dump(exclude={"api_keys"}, mode="json"),
+            )
+            flow_run_repo.update_flow_run(flow_run.id, status=FlowRunStatus.IN_PROGRESS)
 
         # Create the portfolio
         portfolio = create_portfolio(request_data.initial_cash, request_data.margin_requirement, request_data.tickers, request_data.portfolio_positions)
@@ -123,22 +135,30 @@ async def run(request_data: HedgeFundRequest, request: Request, db: Session = De
                     return
 
                 if not result or not result.get("messages"):
+                    if flow_run:
+                        flow_run_repo.update_flow_run(flow_run.id, status=FlowRunStatus.ERROR, error_message="Failed to generate hedge fund decisions")
                     yield ErrorEvent(message="Failed to generate hedge fund decisions").to_sse()
                     return
 
                 # Send the final result
-                final_data = CompleteEvent(
-                    data={
-                        "decisions": parse_hedge_fund_response(result.get("messages", [])[-1].content),
-                        "analyst_signals": result.get("data", {}).get("analyst_signals", {}),
-                        "current_prices": result.get("data", {}).get("current_prices", {}),
-                    }
-                )
-                yield final_data.to_sse()
+                final_payload = {
+                    "decisions": parse_hedge_fund_response(result.get("messages", [])[-1].content),
+                    "analyst_signals": result.get("data", {}).get("analyst_signals", {}),
+                    "current_prices": result.get("data", {}).get("current_prices", {}),
+                }
+                if flow_run:
+                    flow_run_repo.update_flow_run(flow_run.id, status=FlowRunStatus.COMPLETE, results=final_payload)
+                yield CompleteEvent(data=final_payload).to_sse()
 
             except asyncio.CancelledError:
+                if flow_run:
+                    flow_run_repo.update_flow_run(flow_run.id, status=FlowRunStatus.ERROR, error_message="Run cancelled by client")
                 print("Event generator cancelled")
                 return
+            except Exception as exc:
+                if flow_run:
+                    flow_run_repo.update_flow_run(flow_run.id, status=FlowRunStatus.ERROR, error_message=str(exc))
+                raise
             finally:
                 # Clean up
                 progress.unregister_handler(progress_handler)
