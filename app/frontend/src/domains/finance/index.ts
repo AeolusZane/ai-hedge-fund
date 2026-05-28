@@ -1,12 +1,12 @@
 import { TrendingUp } from 'lucide-react';
 import { registerDomain } from '@/core/domain-registry';
 import type { DomainPack } from '@/core/types/domain-pack';
+import { getComponentGroups as getFinanceComponentGroups } from '@/data/sidebar-components';
 
-// Phase-5 stub. The real node types, run form, and result view still live
-// in the shared frontend tree today and will be relocated into this pack in
-// the next phase. We register a thin descriptor now so the platform's domain
-// switcher has something to point at and downstream code can resolve
-// `domainRegistry.get('finance')`.
+// The finance pack still re-uses the shared frontend tree (`data/`, `nodes/`)
+// today. Node types and the run/result UIs will move under this pack in the
+// physical-migration phase; for now we just point the platform at the
+// existing finance palette via `getComponentGroups`.
 const NoopComponent = () => null;
 
 const financeDomain: DomainPack = {
@@ -15,7 +15,7 @@ const financeDomain: DomainPack = {
   description: 'Multi-analyst stock trading workflow',
   icon: TrendingUp,
   nodeTypes: [],
-  componentGroups: [],
+  getComponentGroups: getFinanceComponentGroups,
   RunForm: NoopComponent,
   ResultView: NoopComponent,
 };

@@ -5,25 +5,17 @@ import {
   Calculator,
   ChartLine,
   ChartPie,
-  LucideIcon,
   Network,
   Play,
   Zap
 } from 'lucide-react';
 import { Agent, getAgents } from './agents';
 
-// Define component items by group
-export interface ComponentItem {
-  name: string;
-  icon: LucideIcon;
-}
-
-export interface ComponentGroup {
-  name: string;
-  icon: LucideIcon;
-  iconColor: string;
-  items: ComponentItem[];
-}
+// Types are now owned by the platform core so domain packs can declare them
+// without depending on this finance-flavoured module. Re-export here so the
+// existing `@/data/sidebar-components` import path keeps working.
+import type { ComponentGroup } from '@/core/types/component-group';
+export type { ComponentGroup, ComponentItem } from '@/core/types/component-group';
 
 /**
  * Get all component groups, including agents fetched from the backend

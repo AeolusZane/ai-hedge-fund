@@ -14,7 +14,8 @@ const bugFixDomain: DomainPack = {
   description: 'Jira → patch → PR (stub)',
   icon: Wrench,
   nodeTypes: [],
-  componentGroups: [],
+  // Stub: no draggable components yet; the palette will show its empty state.
+  getComponentGroups: async () => [],
   RunForm: NoopComponent,
   ResultView: NoopComponent,
 };

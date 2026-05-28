@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import type { ComponentGroup } from './component-group';
 
 /**
  * Static description of a workflow domain that the platform can host.
@@ -24,14 +25,19 @@ export interface DomainPack {
   /**
    * React Flow node-type registrations.
    * The platform merges these into ReactFlow's `nodeTypes` map at mount.
+   * Today this is reserved for the upcoming physical-migration phase;
+   * the current finance pack still registers its node types globally
+   * through `nodes/index.ts`.
    */
   nodeTypes: DomainNodeType[];
 
   /**
-   * Groups shown in the right-side component palette so users can drag
-   * domain nodes onto the canvas. Each group references nodeType ids.
+   * Resolves the groups shown in the right-side palette for this domain.
+   * Returning a Promise lets a domain hit its own backend (e.g. finance
+   * fetches the analyst list from /hedge-fund/agents). Returning `[]`
+   * causes the palette to show its empty state.
    */
-  componentGroups: DomainComponentGroup[];
+  getComponentGroups: () => Promise<ComponentGroup[]>;
 
   /**
    * Form rendered when the user clicks Run. Receives a callback that

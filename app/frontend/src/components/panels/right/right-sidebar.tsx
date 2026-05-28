@@ -1,4 +1,5 @@
-import { ComponentGroup, getComponentGroups } from '@/data/sidebar-components';
+import { useDomain } from '@/core/contexts/domain-context';
+import type { ComponentGroup } from '@/core/types/component-group';
 import { useComponentGroups } from '@/hooks/use-component-groups';
 import { useResizable } from '@/hooks/use-resizable';
 import { cn } from '@/lib/utils';
@@ -31,26 +32,36 @@ export function RightSidebar({
     onWidthChange?.(width);
   }, [width, onWidthChange]);
   
-  // State for loading component groups
+  // The active domain decides which palette groups appear. Switching domain
+  // re-runs the loader.
+  const { current: currentDomain } = useDomain();
   const [componentGroups, setComponentGroups] = useState<ComponentGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
-  // Load component groups on mount
+
   useEffect(() => {
-    const loadComponentGroups = async () => {
-      try {
-        setIsLoading(true);
-        const groups = await getComponentGroups();
-        setComponentGroups(groups);
-      } catch (error) {
+    if (!currentDomain) {
+      setComponentGroups([]);
+      setIsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setIsLoading(true);
+    currentDomain
+      .getComponentGroups()
+      .then((groups) => {
+        if (!cancelled) setComponentGroups(groups);
+      })
+      .catch((error) => {
         console.error('Failed to load component groups:', error);
-      } finally {
-        setIsLoading(false);
-      }
+        if (!cancelled) setComponentGroups([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
     };
-    
-    loadComponentGroups();
-  }, []);
+  }, [currentDomain]);
   
   const { 
     searchQuery, 
