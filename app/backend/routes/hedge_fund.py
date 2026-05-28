@@ -3,10 +3,11 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import asyncio
 
+from app.backend.core.executors import ExecutorContext, ProgressEvent, executor_registry
 from app.backend.database import get_db
 from app.backend.models.schemas import ErrorResponse, HedgeFundRequest, BacktestRequest, BacktestDayResult, BacktestPerformanceMetrics
 from app.backend.models.events import StartEvent, ProgressUpdateEvent, ErrorEvent, CompleteEvent
-from app.backend.services.graph import create_graph, parse_hedge_fund_response, run_graph_async
+from app.backend.services.graph import create_graph
 from app.backend.services.portfolio import create_portfolio
 from app.backend.services.backtest_service import BacktestService
 from app.backend.services.api_key_service import ApiKeyService
@@ -42,23 +43,10 @@ async def run(request_data: HedgeFundRequest, request: Request, db: Session = De
             )
             flow_run_repo.update_flow_run(flow_run.id, status=FlowRunStatus.IN_PROGRESS)
 
-        # Create the portfolio
-        portfolio = create_portfolio(request_data.initial_cash, request_data.margin_requirement, request_data.tickers, request_data.portfolio_positions)
-
-        # Construct agent graph using the React Flow graph structure
-        graph = create_graph(
-            graph_nodes=request_data.graph_nodes,
-            graph_edges=request_data.graph_edges
-        )
-        graph = graph.compile()
-
-        # Log a test progress update for debugging
-        progress.update_status("system", None, "Preparing hedge fund run")
-
-        # Convert model_provider to string if it's an enum
-        model_provider = request_data.model_provider
-        if hasattr(model_provider, "value"):
-            model_provider = model_provider.value
+        # Resolve the domain executor. /hedge-fund/run is the legacy entry
+        # point for the finance domain; the platform delegates the actual
+        # graph execution to the registered WorkflowExecutor.
+        executor = executor_registry.get("finance")
 
         # Function to detect client disconnection
         async def wait_for_disconnect():
@@ -73,45 +61,43 @@ async def run(request_data: HedgeFundRequest, request: Request, db: Session = De
 
         # Set up streaming response
         async def event_generator():
-            # Queue for progress updates
-            progress_queue = asyncio.Queue()
+            progress_queue: asyncio.Queue = asyncio.Queue()
             run_task = None
             disconnect_task = None
+            cancelled = {"value": False}
 
-            # Simple handler to add updates to the queue
-            def progress_handler(agent_name, ticker, status, analysis, timestamp):
-                event = ProgressUpdateEvent(agent=agent_name, ticker=ticker, status=status, timestamp=timestamp, analysis=analysis)
-                progress_queue.put_nowait(event)
-
-            # Register our handler with the progress tracker
-            progress.register_handler(progress_handler)
-
-            try:
-                # Start the graph execution in a background task
-                run_task = asyncio.create_task(
-                    run_graph_async(
-                        graph=graph,
-                        portfolio=portfolio,
-                        tickers=request_data.tickers,
-                        start_date=request_data.start_date,
-                        end_date=request_data.end_date,
-                        model_name=request_data.model_name,
-                        model_provider=model_provider,
-                        request=request_data,  # Pass the full request for agent-specific model access
+            def emit(event: ProgressEvent) -> None:
+                payload = event.payload or {}
+                progress_queue.put_nowait(
+                    ProgressUpdateEvent(
+                        agent=event.node_id,
+                        ticker=payload.get("ticker"),
+                        status=event.status,
+                        timestamp=payload.get("timestamp"),
+                        analysis=payload.get("analysis"),
                     )
                 )
-                
-                # Start the disconnect detection task
+
+            context = ExecutorContext(
+                db=db,
+                api_keys=request_data.api_keys or {},
+                emit=emit,
+                is_cancelled=lambda: cancelled["value"],
+            )
+
+            try:
+                request_dict = request_data.model_dump(exclude={"api_keys"}, mode="json")
+                run_task = asyncio.create_task(executor.run(request_dict, context))
                 disconnect_task = asyncio.create_task(wait_for_disconnect())
-                
+
                 # Send initial message
                 yield StartEvent().to_sse()
 
                 # Stream progress updates until run_task completes or client disconnects
                 while not run_task.done():
-                    # Check if client disconnected
                     if disconnect_task.done():
                         print("Client disconnected, cancelling hedge fund execution")
+                        cancelled["value"] = True
                         run_task.cancel()
                         try:
                             await run_task
@@ -119,33 +105,19 @@ async def run(request_data: HedgeFundRequest, request: Request, db: Session = De
                             pass
                         return
 
-                    # Either get a progress update or wait a bit
                     try:
                         event = await asyncio.wait_for(progress_queue.get(), timeout=1.0)
                         yield event.to_sse()
                     except asyncio.TimeoutError:
-                        # Just continue the loop
                         pass
 
                 # Get the final result
                 try:
-                    result = await run_task
+                    final_payload = await run_task
                 except asyncio.CancelledError:
                     print("Task was cancelled")
                     return
 
-                if not result or not result.get("messages"):
-                    if flow_run:
-                        flow_run_repo.update_flow_run(flow_run.id, status=FlowRunStatus.ERROR, error_message="Failed to generate hedge fund decisions")
-                    yield ErrorEvent(message="Failed to generate hedge fund decisions").to_sse()
-                    return
-
-                # Send the final result
-                final_payload = {
-                    "decisions": parse_hedge_fund_response(result.get("messages", [])[-1].content),
-                    "analyst_signals": result.get("data", {}).get("analyst_signals", {}),
-                    "current_prices": result.get("data", {}).get("current_prices", {}),
-                }
                 if flow_run:
                     flow_run_repo.update_flow_run(flow_run.id, status=FlowRunStatus.COMPLETE, results=final_payload)
                 yield CompleteEvent(data=final_payload).to_sse()
@@ -158,10 +130,9 @@ async def run(request_data: HedgeFundRequest, request: Request, db: Session = De
             except Exception as exc:
                 if flow_run:
                     flow_run_repo.update_flow_run(flow_run.id, status=FlowRunStatus.ERROR, error_message=str(exc))
-                raise
+                yield ErrorEvent(message=str(exc)).to_sse()
+                return
             finally:
-                # Clean up
-                progress.unregister_handler(progress_handler)
                 if run_task and not run_task.done():
                     run_task.cancel()
                     try:

@@ -8,6 +8,9 @@ from app.backend.database.connection import engine
 from app.backend.database.models import Base
 from app.backend.services.ollama_service import ollama_service
 
+# Importing domain packs triggers their executor_registry.register(...) side effect.
+import app.backend.domains.finance  # noqa: F401
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
