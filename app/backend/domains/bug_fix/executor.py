@@ -88,8 +88,6 @@ class BugFixExecutor(WorkflowExecutor):
 
         state: dict[str, Any] = {
             "issue_key": issue_key,
-            "analyze_model_name": request.get("analyze_model_name"),
-            "analyze_model_provider": request.get("analyze_model_provider"),
             "api_keys": context.api_keys,
         }
 
@@ -102,9 +100,11 @@ class BugFixExecutor(WorkflowExecutor):
             for n in ordered:
                 if context.is_cancelled():
                     raise asyncio.CancelledError()
+                node_data = n.get("data") or {}
                 await self._run_stage(
                     node_id=n["id"],
-                    stage_name=(n.get("data") or {}).get("name", ""),
+                    stage_name=node_data.get("name", ""),
+                    node_data=node_data,
                     delay=delay,
                     state=state,
                     context=context,
@@ -120,6 +120,7 @@ class BugFixExecutor(WorkflowExecutor):
                 await self._run_stage(
                     node_id=node_id,
                     stage_name=name,
+                    node_data={},
                     delay=delay,
                     state=state,
                     context=context,
@@ -132,6 +133,7 @@ class BugFixExecutor(WorkflowExecutor):
         *,
         node_id: str,
         stage_name: str,
+        node_data: dict[str, Any],
         delay: float,
         state: dict[str, Any],
         context: ExecutorContext,
@@ -171,8 +173,8 @@ class BugFixExecutor(WorkflowExecutor):
                 try:
                     analysis = await analyze_jira_issue(
                         jira_detail,
-                        model_name=state.get("analyze_model_name"),
-                        model_provider=state.get("analyze_model_provider"),
+                        model_name=node_data.get("modelName"),
+                        model_provider=node_data.get("modelProvider"),
                         api_keys=state.get("api_keys"),
                     )
                     state["analysis"] = analysis

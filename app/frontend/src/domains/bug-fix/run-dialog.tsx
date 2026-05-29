@@ -9,18 +9,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { ModelSelector } from '@/components/ui/llm-selector';
 import { useFlowContext } from '@/contexts/flow-context';
 import { useNodeContext } from '@/contexts/node-context';
 import type { DomainRunDialogProps } from '@/core/types/domain-pack';
-import { getModels, type LanguageModel } from '@/data/models';
 import { getNodeInternalState } from '@/hooks/use-node-state';
 import { cn } from '@/lib/utils';
 import { useReactFlow } from '@xyflow/react';
 import { Loader2, Play, Square } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
-const ANALYZE_MODEL_STORAGE_KEY = 'bug_fix:analyze_model';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -45,35 +41,6 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
   const { updateAgentNode, updateAgentNodes } = useNodeContext();
   const flowKey = currentFlowId?.toString() || null;
   const [issueKey, setIssueKey] = useState('');
-
-  const [models, setModels] = useState<LanguageModel[]>([]);
-  const [analyzeModel, setAnalyzeModel] = useState<LanguageModel | null>(null);
-
-  // Load model list once the dialog is opened. Restore previous choice
-  // from localStorage so the user doesn't have to pick every time.
-  useEffect(() => {
-    if (!open || models.length > 0) return;
-    let cancelled = false;
-    getModels()
-      .then((list) => {
-        if (cancelled) return;
-        setModels(list);
-        const saved = window.localStorage.getItem(ANALYZE_MODEL_STORAGE_KEY);
-        const prior = saved ? list.find((m) => m.model_name === saved) : null;
-        setAnalyzeModel(prior ?? list.find((m) => m.provider === 'Anthropic') ?? list[0] ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setModels([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, models.length]);
-
-  const onAnalyzeModelChange = (m: LanguageModel | null) => {
-    setAnalyzeModel(m);
-    if (m) window.localStorage.setItem(ANALYZE_MODEL_STORAGE_KEY, m.model_name);
-  };
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState<ProgressItem[]>([]);
   const [result, setResult] = useState<any>(null);
@@ -127,10 +94,24 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     abortRef.current = controller;
 
     // Snapshot the canvas at submit time so node ids in progress events
-    // line up with whatever the user can see.
+    // line up with whatever the user can see. For LLM-using stages
+    // (today: Analyze), fold in the per-node model preference stored
+    // via useNodeState — the backend reads it from node.data.
     const stageNodes = reactFlow
       .getNodes()
-      .filter((n) => n.type === 'bug-fix-stage-node');
+      .filter((n) => n.type === 'bug-fix-stage-node')
+      .map((n) => {
+        const internal = getNodeInternalState(n.id);
+        if (!internal) return n;
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            ...(internal.modelName ? { modelName: internal.modelName } : {}),
+            ...(internal.modelProvider ? { modelProvider: internal.modelProvider } : {}),
+          },
+        };
+      });
     const stageNodeIds = new Set(stageNodes.map((n) => n.id));
     const stageEdges = reactFlow
       .getEdges()
@@ -151,8 +132,6 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
             stage_delay_seconds: 0.1,
             graph_nodes: stageNodes,
             graph_edges: stageEdges,
-            analyze_model_name: analyzeModel?.model_name,
-            analyze_model_provider: analyzeModel?.provider,
           },
         }),
         signal: controller.signal,
@@ -198,7 +177,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     } finally {
       abortRef.current = null;
     }
-  }, [effectiveIssueKey, reset, analyzeModel]);
+  }, [effectiveIssueKey, reset, reactFlow]);
 
   const handleEvent = (data: any) => {
     if (!data || typeof data !== 'object') return;
@@ -253,17 +232,6 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
         </DialogHeader>
 
         <div className="space-y-3">
-          <div className="space-y-1">
-            <label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Analyze model
-            </label>
-            <ModelSelector
-              models={models}
-              value={analyzeModel?.model_name ?? ''}
-              onChange={onAnalyzeModelChange}
-              placeholder={models.length === 0 ? 'Loading models…' : 'Select an LLM…'}
-            />
-          </div>
           <div className="flex items-center gap-2">
             {canvasOwnsIssue ? (
               <div className="flex-1 flex items-center gap-2 border rounded-md px-3 py-1.5 bg-muted/40 text-xs">
