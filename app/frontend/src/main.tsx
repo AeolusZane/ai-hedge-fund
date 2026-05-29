@@ -5,9 +5,9 @@ import App from './App';
 import { NodeProvider } from './contexts/node-context';
 import { ThemeProvider } from './providers/theme-provider';
 
-// Importing a domain pack triggers its registerDomain(...) side effect.
-// Add new domains here to make them selectable in the switcher.
-import './domains/finance';
+// Coding-branch shell: only the bug_fix domain is registered, so the
+// runtime acts as a single-domain app. The DomainProvider is still
+// present to keep contexts wired; the switcher UI has been removed.
 import './domains/bug-fix';
 
 import './index.css';

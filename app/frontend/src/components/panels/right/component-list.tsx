@@ -1,5 +1,5 @@
 import { Accordion } from '@/components/ui/accordion';
-import { ComponentGroup } from '@/data/sidebar-components';
+import { ComponentGroup } from '@/core/types/component-group';
 import { SearchBox } from '../search-box';
 import { ComponentItemGroup } from './component-item-group';
 

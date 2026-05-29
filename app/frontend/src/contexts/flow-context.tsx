@@ -1,11 +1,10 @@
 import { useDomain } from '@/core/contexts/domain-context';
-import { getMultiNodeDefinition, isMultiNodeComponent } from '@/data/multi-node-mappings';
 import { getNodeTypeDefinition } from '@/data/node-mappings';
 import { flowConnectionManager } from '@/hooks/use-flow-connection';
 import { clearAllNodeStates, getAllNodeStates, setNodeInternalState, setCurrentFlowId as setNodeStateFlowId } from '@/hooks/use-node-state';
 import { flowService } from '@/services/flow-service';
 import { Flow } from '@/types/flow';
-import { MarkerType, ReactFlowInstance, useReactFlow, XYPosition } from '@xyflow/react';
+import { ReactFlowInstance, useReactFlow, XYPosition } from '@xyflow/react';
 import { createContext, ReactNode, useCallback, useContext, useState } from 'react';
 
 interface FlowContextType {
@@ -235,113 +234,11 @@ export function FlowProvider({ children }: FlowProviderProps) {
     }
   }, [reactFlowInstance, getViewportPosition, markAsUnsaved]);
 
-  // Add a multi node (group of nodes with edges) to the flow
-  const addMultipleNodesToFlow = useCallback(async (name: string) => {
-    try {
-      const multiNodeDefinition = getMultiNodeDefinition(name);
-      if (!multiNodeDefinition) {
-        console.warn(`No multi node definition found for: ${name}`);
-        return;
-      }
-
-      const basePosition = getViewportPosition();
-
-      // Calculate bounding box of all nodes to center the group
-      const nodePositions = multiNodeDefinition.nodes.map(node => ({
-        x: node.offsetX,
-        y: node.offsetY
-      }));
-      
-      const minX = Math.min(...nodePositions.map(pos => pos.x));
-      const maxX = Math.max(...nodePositions.map(pos => pos.x));
-      const minY = Math.min(...nodePositions.map(pos => pos.y));
-      const maxY = Math.max(...nodePositions.map(pos => pos.y));
-      
-      // Center the group by adjusting base position
-      const groupCenterX = (minX + maxX) / 2;
-      const groupCenterY = (minY + maxY) / 2;
-      
-      const adjustedBasePosition = {
-        x: basePosition.x - groupCenterX,
-        y: basePosition.y - groupCenterY,
-      };
-
-      // Create nodes (async)
-      const newNodes = await Promise.all(
-        multiNodeDefinition.nodes.map(async (nodeConfig) => {
-          try {
-            const nodeTypeDefinition = await getNodeTypeDefinition(nodeConfig.componentName);
-            if (!nodeTypeDefinition) {
-              console.warn(`No node type definition found for: ${nodeConfig.componentName}`);
-              return null;
-            }
-
-            const position = {
-              x: adjustedBasePosition.x + nodeConfig.offsetX,
-              y: adjustedBasePosition.y + nodeConfig.offsetY,
-            };
-
-            return nodeTypeDefinition.createNode(position);
-          } catch (error) {
-            console.error(`Failed to create node for ${nodeConfig.componentName}:`, error);
-            return null;
-          }
-        })
-      );
-      
-      const validNodes = newNodes.filter((node): node is NonNullable<typeof node> => node !== null);
-
-      // Create a mapping from component names to actual node IDs
-      const componentNameToNodeId = new Map<string, string>();
-      multiNodeDefinition.nodes.forEach((nodeConfig, index) => {
-        const correspondingNode = validNodes[index];
-        if (correspondingNode) {
-          componentNameToNodeId.set(nodeConfig.componentName, correspondingNode.id);
-        }
-      });
-
-      // Create edges using the actual node IDs
-      const newEdges = multiNodeDefinition.edges.map((edgeConfig) => {
-        const sourceNodeId = componentNameToNodeId.get(edgeConfig.source);
-        const targetNodeId = componentNameToNodeId.get(edgeConfig.target);
-        
-        if (!sourceNodeId || !targetNodeId) {
-          console.warn(`Could not resolve node IDs for edge: ${edgeConfig.source} -> ${edgeConfig.target}`);
-          return null;
-        }
-        
-        return {
-          id: `${sourceNodeId}-${targetNodeId}`,
-          source: sourceNodeId,
-          target: targetNodeId,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-          },
-        };
-      }).filter((edge): edge is NonNullable<typeof edge> => edge !== null);
-
-      // Add nodes and edges to flow
-      reactFlowInstance.setNodes((nodes) => [...nodes, ...validNodes]);
-      reactFlowInstance.setEdges((edges) => [...edges, ...newEdges]);
-      markAsUnsaved();
-      
-      // Fit view to show all nodes after a short delay to ensure nodes are rendered
-      setTimeout(() => {
-        reactFlowInstance.fitView({ padding: 0.1, duration: 500 });
-      }, 100);
-    } catch (error) {
-      console.error(`Failed to add multi-node component ${name} to flow:`, error);
-    }
-  }, [reactFlowInstance, getViewportPosition, markAsUnsaved]);
-
-  // Main entry point - route to single node or multi node
+  // Multi-node grouping was a finance-only convenience; in the coding
+  // branch every palette item maps to a single canvas node.
   const addComponentToFlow = useCallback(async (componentName: string) => {
-    if (isMultiNodeComponent(componentName)) {
-      await addMultipleNodesToFlow(componentName);
-    } else {
-      await addSingleNodeToFlow(componentName);
-    }
-  }, [addMultipleNodesToFlow, addSingleNodeToFlow]);
+    await addSingleNodeToFlow(componentName);
+  }, [addSingleNodeToFlow]);
 
   const value = {
     addComponentToFlow,

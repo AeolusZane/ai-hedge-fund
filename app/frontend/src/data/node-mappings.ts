@@ -1,17 +1,10 @@
 import { AppNode } from "@/nodes/types";
-import { Agent, getAgents } from "./agents";
 
-// Map of sidebar item names to node creation functions
 export interface NodeTypeDefinition {
-  createNode: (position: { x: number, y: number }) => AppNode;
+  createNode: (position: { x: number; y: number }) => AppNode;
 }
 
-// Cache for node type definitions to avoid repeated API calls
-let nodeTypeDefinitionsCache: Record<string, NodeTypeDefinition> | null = null;
-
-// Utility function to generate unique short ID suffix
 const generateUniqueIdSuffix = (): string => {
-  // Generate a short random ID (6 characters)
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let result = '';
   for (let i = 0; i < 6; i++) {
@@ -20,26 +13,18 @@ const generateUniqueIdSuffix = (): string => {
   return result;
 };
 
-/**
- * Extract the base agent key from a unique node ID
- * @param uniqueId The unique node ID with suffix (e.g., "warren_buffett_abc123")
- * @returns The base agent key (e.g., "warren_buffett")
- */
 export const extractBaseAgentKey = (uniqueId: string): string => {
-  // For agent nodes, remove the last underscore and 6-character suffix
-  // For other nodes like portfolio_manager, also remove the suffix
   const parts = uniqueId.split('_');
   if (parts.length >= 2) {
     const lastPart = parts[parts.length - 1];
-    // If the last part is a 6-character alphanumeric string, it's likely our suffix
     if (lastPart.length === 6 && /^[a-z0-9]+$/.test(lastPart)) {
       return parts.slice(0, -1).join('_');
     }
   }
-  return uniqueId; // Return original if no suffix pattern found
+  return uniqueId;
 };
 
-// One factory for every bug_fix stage tile so we don't repeat the boilerplate.
+// One factory for every bug_fix stage tile so we don't repeat boilerplate.
 const bugFixStage = (name: string, description: string): NodeTypeDefinition => ({
   createNode: (position) => ({
     id: `${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${generateUniqueIdSuffix()}`,
@@ -49,129 +34,43 @@ const bugFixStage = (name: string, description: string): NodeTypeDefinition => (
   }),
 });
 
-// Define base node creation functions (non-agent nodes)
-const baseNodeTypeDefinitions: Record<string, NodeTypeDefinition> = {
-  "Jira Issue Input": {
+const nodeTypeDefinitions: Record<string, NodeTypeDefinition> = {
+  'Jira Issue Input': {
     createNode: (position) => ({
       id: `jira_issue_input_${generateUniqueIdSuffix()}`,
-      type: "jira-issue-input-node",
+      type: 'jira-issue-input-node',
       position,
       data: {
-        name: "Jira Issue Input",
-        description: "Persistent issue key consumed by the bug_fix runner.",
+        name: 'Jira Issue Input',
+        description: 'Persistent issue key consumed by the bug_fix runner.',
       },
     }),
   },
-  "Analyze": bugFixStage(
-    "Analyze",
-    "Reason about the root cause from the Jira description + linked code."
+  Analyze: bugFixStage(
+    'Analyze',
+    'Reason about the root cause from the Jira description + linked code.'
   ),
-  "Patch": bugFixStage(
-    "Patch",
-    "Apply a code change that addresses the root cause."
+  Patch: bugFixStage(
+    'Patch',
+    'Apply a code change that addresses the root cause.'
   ),
-  "Test": bugFixStage(
-    "Test",
-    "Run tests / lint to validate the patch."
+  Test: bugFixStage('Test', 'Run tests / lint to validate the patch.'),
+  'Open PR': bugFixStage(
+    'Open PR',
+    'Open a pull request and link it back to the Jira issue.'
   ),
-  "Open PR": bugFixStage(
-    "Open PR",
-    "Open a pull request and link it back to the Jira issue."
-  ),
-  "Portfolio Input": {
-    createNode: (position: { x: number, y: number }): AppNode => ({
-      id: `portfolio-start-node_${generateUniqueIdSuffix()}`,
-      type: "portfolio-start-node",
-      position,
-      data: {
-        name: "Portfolio Input",
-        description: "Enter your portfolio including tickers, shares, and prices. Connect this node to Analysts to generate insights.",
-        status: "Idle",
-      },
-    }),
-  },
-  "Portfolio Manager": {
-    createNode: (position: { x: number, y: number }): AppNode => ({
-      id: `portfolio_manager_${generateUniqueIdSuffix()}`,
-      type: "portfolio-manager-node",
-      position,
-      data: {
-        name: "Portfolio Manager",
-        description: "Generates investment decisions based on input from Analysts.",
-        status: "Idle",
-      },
-    }),
-  },
-  "Stock Input": {
-    createNode: (position: { x: number, y: number }): AppNode => ({
-      id: `stock-analyzer-node_${generateUniqueIdSuffix()}`,
-      type: "stock-analyzer-node",
-      position,
-      data: {
-        name: "Stock Input",
-        description: "Enter individual stocks and connect this node to Analysts to generate insights.",
-        status: "Idle",
-      },
-    }),
-  },
-};
-
-/**
- * Get all node type definitions, including agents fetched from the backend
- */
-const getNodeTypeDefinitions = async (): Promise<Record<string, NodeTypeDefinition>> => {
-  if (nodeTypeDefinitionsCache) {
-    return nodeTypeDefinitionsCache;
-  }
-
-  const agents = await getAgents();
-  
-  // Create agent node definitions
-  const agentNodeDefinitions = agents.reduce((acc: Record<string, NodeTypeDefinition>, agent: Agent) => {
-    acc[agent.display_name] = {
-      createNode: (position: { x: number, y: number }): AppNode => ({
-        id: `${agent.key}_${generateUniqueIdSuffix()}`,
-        type: "agent-node",
-        position,
-        data: {
-          name: agent.display_name,
-          description: agent.investing_style || "",
-          status: "Idle",
-        },
-      }),
-    };
-    return acc;
-  }, {});
-
-  // Combine base and agent definitions
-  nodeTypeDefinitionsCache = {
-    ...baseNodeTypeDefinitions,
-    ...agentNodeDefinitions,
-  };
-
-  return nodeTypeDefinitionsCache;
 };
 
 export async function getNodeTypeDefinition(componentName: string): Promise<NodeTypeDefinition | null> {
-  const nodeTypeDefinitions = await getNodeTypeDefinitions();
   return nodeTypeDefinitions[componentName] || null;
 }
 
-// Get the node ID that would be generated for a component
 export async function getNodeIdForComponent(componentName: string): Promise<string | null> {
-  const nodeTypeDefinition = await getNodeTypeDefinition(componentName);
-  if (!nodeTypeDefinition) {
-    return null;
-  }
-  
-  // Extract ID by creating a temporary node (position doesn't matter for ID extraction)
-  const tempNode = nodeTypeDefinition.createNode({ x: 0, y: 0 });
-  return tempNode.id;
+  const def = await getNodeTypeDefinition(componentName);
+  if (!def) return null;
+  return def.createNode({ x: 0, y: 0 }).id;
 }
 
-/**
- * Clear the node type definitions cache - useful for testing or when you want to force a refresh
- */
 export const clearNodeTypeDefinitionsCache = () => {
-  nodeTypeDefinitionsCache = null;
-}; 
+  // No async cache to clear in single-domain mode; kept for callers.
+};
