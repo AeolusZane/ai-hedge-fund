@@ -1,3 +1,4 @@
+import { useDomain } from '@/core/contexts/domain-context';
 import { getMultiNodeDefinition, isMultiNodeComponent } from '@/data/multi-node-mappings';
 import { getNodeTypeDefinition } from '@/data/node-mappings';
 import { flowConnectionManager } from '@/hooks/use-flow-connection';
@@ -34,6 +35,7 @@ interface FlowProviderProps {
 
 export function FlowProvider({ children }: FlowProviderProps) {
   const reactFlowInstance = useReactFlow();
+  const { current: currentDomain } = useDomain();
   const [currentFlowId, setCurrentFlowId] = useState<number | null>(null);
   const [currentFlowName, setCurrentFlowName] = useState('Untitled Flow');
   const [isUnsaved, setIsUnsaved] = useState(false);
@@ -106,7 +108,8 @@ export function FlowProvider({ children }: FlowProviderProps) {
         setNodeStateFlowId(updatedFlow.id.toString());
         return updatedFlow;
       } else {
-        // Create new flow
+        // Create new flow under the currently active domain so the
+        // sidebar listing and tabs filter correctly when switching.
         const newFlow = await flowService.createFlow({
           name: name || currentFlowName,
           description,
@@ -114,6 +117,7 @@ export function FlowProvider({ children }: FlowProviderProps) {
           edges,
           viewport,
           data,
+          domain: currentDomain?.id,
         });
         setCurrentFlowId(newFlow.id);
         setCurrentFlowName(newFlow.name);
@@ -128,7 +132,7 @@ export function FlowProvider({ children }: FlowProviderProps) {
       console.error('Failed to save flow:', error);
       return null;
     }
-  }, [reactFlowInstance, currentFlowId, currentFlowName]);
+  }, [reactFlowInstance, currentFlowId, currentFlowName, currentDomain]);
 
   // Load a flow
   const loadFlow = useCallback(async (flow: Flow) => {

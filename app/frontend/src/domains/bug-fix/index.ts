@@ -1,4 +1,6 @@
 import { Brain, Code, GitPullRequest, Inbox, TestTube, Wrench } from 'lucide-react';
+// Fetch Jira merged into Jira Issue Input — no separate Inbox tile under
+// Stages. Inbox icon is still used for the input tile in the Inputs group.
 import { registerDomain } from '@/core/domain-registry';
 import type { DomainPack } from '@/core/types/domain-pack';
 import { BugFixRunDialog } from './run-dialog';
@@ -24,7 +26,6 @@ const bugFixDomain: DomainPack = {
       icon: Wrench,
       iconColor: 'text-amber-500',
       items: [
-        { name: 'Fetch Jira', icon: Inbox },
         { name: 'Analyze', icon: Brain },
         { name: 'Patch', icon: Code },
         { name: 'Test', icon: TestTube },

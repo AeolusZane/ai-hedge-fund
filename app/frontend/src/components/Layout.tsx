@@ -189,15 +189,15 @@ export function Layout({ children }: LayoutProps) {
   return (
     <SidebarProvider defaultOpen={true}>
       <ReactFlowProvider>
-        <FlowProvider>
-          <TabsProvider>
-            <LayoutProvider>
-              <DomainProvider>
+        <DomainProvider>
+          <FlowProvider>
+            <TabsProvider>
+              <LayoutProvider>
                 <LayoutContent>{children}</LayoutContent>
-              </DomainProvider>
-            </LayoutProvider>
-          </TabsProvider>
-        </FlowProvider>
+              </LayoutProvider>
+            </TabsProvider>
+          </FlowProvider>
+        </DomainProvider>
       </ReactFlowProvider>
     </SidebarProvider>
   );

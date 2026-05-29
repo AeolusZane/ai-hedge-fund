@@ -11,6 +11,8 @@ export interface CreateFlowRequest {
   data?: any;
   is_template?: boolean;
   tags?: string[];
+  /** Domain id (e.g. "finance", "bug_fix") to tag the new flow with. */
+  domain?: string;
 }
 
 export interface UpdateFlowRequest {
@@ -25,9 +27,12 @@ export interface UpdateFlowRequest {
 }
 
 export const flowService = {
-  // Get all flows
-  async getFlows(): Promise<Flow[]> {
-    const response = await fetch(`${API_BASE_URL}/flows/`);
+  // Get all flows, optionally filtered to a single domain.
+  async getFlows(domain?: string): Promise<Flow[]> {
+    const url = domain
+      ? `${API_BASE_URL}/flows/?domain=${encodeURIComponent(domain)}`
+      : `${API_BASE_URL}/flows/`;
+    const response = await fetch(url);
     if (!response.ok) {
       throw new Error('Failed to fetch flows');
     }

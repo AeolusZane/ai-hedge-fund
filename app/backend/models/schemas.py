@@ -151,6 +151,10 @@ class FlowCreateRequest(BaseModel):
     data: Optional[Dict[str, Any]] = None
     is_template: bool = False
     tags: Optional[List[str]] = None
+    domain: Optional[str] = Field(
+        default=None,
+        description="DomainPack id that owns this flow (e.g. finance, bug_fix)",
+    )
 
 
 class FlowUpdateRequest(BaseModel):
@@ -174,6 +178,7 @@ class FlowResponse(BaseModel):
     data: Optional[Dict[str, Any]]
     is_template: bool
     tags: Optional[List[str]]
+    domain: str = "finance"
     created_at: datetime
     updated_at: Optional[datetime]
 
@@ -188,6 +193,7 @@ class FlowSummaryResponse(BaseModel):
     description: Optional[str]
     is_template: bool
     tags: Optional[List[str]]
+    domain: str = "finance"
     created_at: datetime
     updated_at: Optional[datetime]
 

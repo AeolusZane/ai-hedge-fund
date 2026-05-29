@@ -25,6 +25,11 @@ class HedgeFundFlow(Base):
     is_template = Column(Boolean, default=False)  # Mark as template for reuse
     tags = Column(JSON, nullable=True)  # Store tags for categorization
 
+    # Which workflow domain owns this flow. Matches DomainPack.id on the
+    # frontend (e.g. "finance", "bug_fix"). Pre-existing rows are
+    # backfilled to "finance" by the startup migration.
+    domain = Column(String(64), nullable=False, default="finance", index=True)
+
 
 class HedgeFundFlowRun(Base):
     """Table to track individual execution runs of a hedge fund flow"""

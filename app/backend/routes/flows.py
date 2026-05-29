@@ -1,6 +1,6 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 
 from app.backend.database import get_db
 from app.backend.repositories.flow_repository import FlowRepository
@@ -35,7 +35,8 @@ async def create_flow(request: FlowCreateRequest, db: Session = Depends(get_db))
             viewport=request.viewport,
             data=request.data,
             is_template=request.is_template,
-            tags=request.tags
+            tags=request.tags,
+            domain=request.domain or "finance",
         )
         return FlowResponse.from_orm(flow)
     except Exception as e:
@@ -49,11 +50,18 @@ async def create_flow(request: FlowCreateRequest, db: Session = Depends(get_db))
         500: {"model": ErrorResponse, "description": "Internal server error"},
     },
 )
-async def get_flows(include_templates: bool = True, db: Session = Depends(get_db)):
-    """Get all flows (summary view)"""
+async def get_flows(
+    include_templates: bool = True,
+    domain: Optional[str] = Query(
+        default=None,
+        description="Restrict the list to flows belonging to this domain id",
+    ),
+    db: Session = Depends(get_db),
+):
+    """Get all flows (summary view), optionally filtered by domain."""
     try:
         repo = FlowRepository(db)
-        flows = repo.get_all_flows(include_templates=include_templates)
+        flows = repo.get_all_flows(include_templates=include_templates, domain=domain)
         return [FlowSummaryResponse.from_orm(flow) for flow in flows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve flows: {str(e)}")

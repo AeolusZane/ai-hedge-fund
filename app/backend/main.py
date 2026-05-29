@@ -29,6 +29,30 @@ app = FastAPI(title="AI Hedge Fund API", description="Backend API for AI Hedge F
 # Initialize database tables (this is safe to run multiple times)
 Base.metadata.create_all(bind=engine)
 
+
+def _ensure_flow_domain_column() -> None:
+    """Idempotently add the `domain` column to existing SQLite databases.
+
+    `create_all` only creates missing tables; it doesn't migrate existing
+    ones. Production setups should use Alembic; this path keeps the dev
+    DB up to date without forcing the user to nuke it.
+    """
+    from sqlalchemy import text
+
+    with engine.connect() as conn:
+        cols = conn.execute(text("PRAGMA table_info(hedge_fund_flows)")).fetchall()
+        if not any(row[1] == "domain" for row in cols):
+            conn.execute(
+                text(
+                    "ALTER TABLE hedge_fund_flows ADD COLUMN domain "
+                    "VARCHAR(64) NOT NULL DEFAULT 'finance'"
+                )
+            )
+            conn.commit()
+
+
+_ensure_flow_domain_column()
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,

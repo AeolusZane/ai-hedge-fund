@@ -1,3 +1,4 @@
+import { useDomain } from '@/core/contexts/domain-context';
 import { Flow } from '@/types/flow';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 
@@ -57,6 +58,8 @@ const TABS_STORAGE_KEY = 'ai-hedge-fund-tabs';
 const ACTIVE_TAB_STORAGE_KEY = 'ai-hedge-fund-active-tab';
 
 export function TabsProvider({ children }: TabsProviderProps) {
+  const { current: currentDomain } = useDomain();
+  const currentDomainId = currentDomain?.id ?? null;
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -138,6 +141,27 @@ export function TabsProvider({ children }: TabsProviderProps) {
       saveTabsToStorage(tabs, activeTabId);
     }
   }, [tabs, activeTabId, isInitialized, saveTabsToStorage]);
+
+  // When the active workflow domain changes, drop flow tabs that belong
+  // to a different domain so the user can't navigate into them from the
+  // wrong domain UI. Non-flow tabs (settings, etc.) stay regardless.
+  useEffect(() => {
+    if (!isInitialized || !currentDomainId) return;
+    setTabs((prev) => {
+      const kept = prev.filter((tab) => {
+        if (tab.type !== 'flow' || !tab.flow) return true;
+        // Legacy flows without a domain default to "finance" — matches the
+        // backend migration that backfilled the column.
+        const flowDomain = tab.flow.domain || 'finance';
+        return flowDomain === currentDomainId;
+      });
+      if (kept.length === prev.length) return prev;
+      setActiveTabId((curr) =>
+        curr && kept.some((t) => t.id === curr) ? curr : kept[0]?.id ?? null
+      );
+      return kept;
+    });
+  }, [currentDomainId, isInitialized]);
 
   // Check if a tab is already open
   const isTabOpen = useCallback((identifier: string, type: TabType): boolean => {

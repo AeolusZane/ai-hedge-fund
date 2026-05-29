@@ -9,8 +9,9 @@ class FlowRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def create_flow(self, name: str, nodes: dict, edges: dict, description: str = None, 
-                   viewport: dict = None, data: dict = None, is_template: bool = False, tags: List[str] = None) -> HedgeFundFlow:
+    def create_flow(self, name: str, nodes: dict, edges: dict, description: str = None,
+                   viewport: dict = None, data: dict = None, is_template: bool = False,
+                   tags: List[str] = None, domain: str = "finance") -> HedgeFundFlow:
         """Create a new hedge fund flow"""
         flow = HedgeFundFlow(
             name=name,
@@ -20,7 +21,8 @@ class FlowRepository:
             viewport=viewport,
             data=data,
             is_template=is_template,
-            tags=tags or []
+            tags=tags or [],
+            domain=domain,
         )
         self.db.add(flow)
         self.db.commit()
@@ -31,11 +33,15 @@ class FlowRepository:
         """Get a flow by its ID"""
         return self.db.query(HedgeFundFlow).filter(HedgeFundFlow.id == flow_id).first()
     
-    def get_all_flows(self, include_templates: bool = True) -> List[HedgeFundFlow]:
-        """Get all flows, optionally excluding templates"""
+    def get_all_flows(
+        self, include_templates: bool = True, domain: Optional[str] = None
+    ) -> List[HedgeFundFlow]:
+        """Get all flows, optionally filtered by domain or excluding templates."""
         query = self.db.query(HedgeFundFlow)
         if not include_templates:
             query = query.filter(HedgeFundFlow.is_template == False)
+        if domain is not None:
+            query = query.filter(HedgeFundFlow.domain == domain)
         return query.order_by(HedgeFundFlow.updated_at.desc()).all()
     
     def get_flows_by_name(self, name: str) -> List[HedgeFundFlow]:

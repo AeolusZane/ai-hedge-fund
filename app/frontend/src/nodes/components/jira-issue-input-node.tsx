@@ -1,6 +1,8 @@
 import { Button } from '@/components/ui/button';
 import { CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { useFlowContext } from '@/contexts/flow-context';
+import { useNodeContext } from '@/contexts/node-context';
 import {
   requestRun,
   requestStop,
@@ -8,19 +10,20 @@ import {
 } from '@/domains/bug-fix/run-controller';
 import { useNodeState } from '@/hooks/use-node-state';
 import { cn } from '@/lib/utils';
+import type { NodeStatus } from '@/nodes/utils';
 import { type NodeProps } from '@xyflow/react';
 import { Inbox, Play, Square } from 'lucide-react';
 import type { JiraIssueInputNode } from '../types';
+import { getStatusColor } from '../utils';
 import { NodeShell } from './node-shell';
 
 /**
- * Canvas-resident input node for the bug_fix domain.
+ * Canvas-resident input + fetch node for the bug_fix domain.
  *
- * Owns the Jira issue key (via useNodeState) and also acts as the start
- * trigger: clicking Play asks the always-mounted Run dialog to open and
- * begin executing the canvas. The dialog continues to host the progress
- * timeline and final result, but the entry point lives here on the
- * canvas instead of in the top bar.
+ * Owns the Jira issue key (via useNodeState), triggers the run, AND
+ * acts as the first executable step: when the executor walks the
+ * graph this node performs the MCP fetch and populates the shared
+ * state for downstream stages. A fetch failure terminates the run.
  */
 export function JiraIssueInputNode({
   data,
@@ -33,18 +36,34 @@ export function JiraIssueInputNode({
   const running = phase === 'running';
   const canRun = !running && issueKey.trim().length > 0;
 
+  const { currentFlowId } = useFlowContext();
+  const { getAgentNodeDataForFlow } = useNodeContext();
+  const agentNodeData = getAgentNodeDataForFlow(currentFlowId?.toString() || null);
+  const status: NodeStatus = (agentNodeData[id]?.status as NodeStatus) ?? 'IDLE';
+  const isInProgress = status === 'IN_PROGRESS';
+
   return (
     <NodeShell
       id={id}
       selected={selected}
       isConnectable={isConnectable}
       icon={<Inbox className="h-5 w-5" />}
-      iconColor="text-blue-500"
+      iconColor={status === 'IDLE' ? 'text-blue-500' : getStatusColor(status)}
       name={data.name}
       description={data.description}
+      status={status}
       hasLeftHandle={false}
     >
-      <CardContent className={cn('pt-2 pb-3 space-y-2')}>
+      <CardContent
+        className={cn(
+          'pt-2 pb-3 space-y-2',
+          isInProgress && 'gradient-animation'
+        )}
+      >
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>Input + Fetch</span>
+          <span className={cn('font-mono', getStatusColor(status))}>{status}</span>
+        </div>
         <label className="text-[10px] uppercase tracking-wide text-muted-foreground">
           Issue key
         </label>

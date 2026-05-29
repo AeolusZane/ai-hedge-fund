@@ -1,6 +1,7 @@
 import { useFlowContext } from '@/contexts/flow-context';
 import { useNodeContext } from '@/contexts/node-context';
 import { useTabsContext } from '@/contexts/tabs-context';
+import { useDomain } from '@/core/contexts/domain-context';
 import {
   clearFlowNodeStates,
   getNodeInternalState,
@@ -48,6 +49,8 @@ export function useFlowManagementTabs(): UseFlowManagementTabsReturn {
   const { exportNodeContextData } = useNodeContext();
   const { openTab, isTabOpen, closeTab } = useTabsContext();
   const { success, error } = useToastManager();
+  const { current: currentDomain } = useDomain();
+  const currentDomainId = currentDomain?.id ?? null;
   
   // State for flows
   const [flows, setFlows] = useState<Flow[]>([]);
@@ -129,23 +132,24 @@ export function useFlowManagementTabs(): UseFlowManagementTabsReturn {
     }
   }, [reactFlowInstance, openTab]);
 
-  // Load flows from API
+  // Load flows from API for the active domain.
   const loadFlows = useCallback(async () => {
+    if (!currentDomainId) return;
     setIsLoading(true);
     try {
-      const flowsData = await flowService.getFlows();
+      const flowsData = await flowService.getFlows(currentDomainId);
       setFlows(flowsData);
-      
+
       // Don't automatically create or open tabs on startup
       // Let users explicitly open tabs by clicking on flows
       // Tabs will be restored from localStorage if they exist
-      
+
     } catch (error) {
       console.error('Error loading flows:', error);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [currentDomainId]);
 
   // Load flows on mount
   useEffect(() => {

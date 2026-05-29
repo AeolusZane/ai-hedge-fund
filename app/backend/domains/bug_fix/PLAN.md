@@ -1,0 +1,167 @@
+# Bug Fix Domain — Roadmap
+
+Status as of this commit: phases through F3a are landed. The Analyze
+stage runs against a real LLM (provider-agnostic via the shared
+`get_model()` registry). The remaining stages (Patch, Test, Open PR)
+are still stubs that sleep + report Done.
+
+This file captures the design intent and open questions for F3b/c/d so
+they survive a context reset.
+
+## Where each stage stands
+
+| Stage              | Real / stub | Notes |
+| ------------------ | ----------- | ----- |
+| Jira Issue Input   | real        | merged with Fetch Jira; performs MCP fetch as the first runnable node; fail-fast |
+| Analyze            | real        | LLM call via `get_model(model_name, model_provider, api_keys)`; per-node selector |
+| Patch              | stub        | F3b — see below |
+| Test               | stub        | F3c — see below |
+| Open PR            | stub        | F3d — see below |
+
+## Architecture invariants already established
+
+- One backend executor per domain registered through
+  `executor_registry.register(...)` at `app.backend.domains.<id>.pack` import time.
+- `BugFixExecutor.run()` walks the React Flow graph in topological order
+  (`_topological_order`, Kahn's algorithm). Each runnable node is one
+  stage; node ids on the canvas match progress-event ids.
+- Per-node config (e.g. model selection on Analyze) is folded into
+  `node.data` at submit time by the frontend (`run-dialog.tsx`) and
+  read back in `_run_node` via `node_data`.
+- A failed Jira fetch raises `JiraFetchError`; the route wraps it as
+  `RuntimeError` so the SSE consumer surfaces the error and stops.
+
+These should NOT be undone by F3 work.
+
+## F3b — Patch (real)
+
+### Goal
+
+Edit code in a target repo so the bug is fixed, leaving a clean diff
+ready for review. No autonomous merging.
+
+### Open design questions
+
+1. **Edit mechanism** — three plausible paths:
+   - `claude` CLI as a subprocess (Claude Code). Pros: best code agent
+     available; supports tools natively. Cons: extra binary dep; harder
+     to programmatically observe progress.
+   - LangChain agent calling explicit file-edit tools we expose. Pros:
+     fully in-process, observable. Cons: we have to build/host the
+     tools; quality lower than Claude Code.
+   - LLM produces a unified diff that we apply with `patch`/`git apply`.
+     Pros: small, debuggable. Cons: brittle when context drifts; LLM
+     often hallucinates line numbers.
+   - **Lean recommendation**: start with Claude Code subprocess. It's
+     the only option that produces real edits with reasonable quality
+     today.
+2. **Target repo location** — needs a canvas node ("Repo Path Input")
+   or a config carried on the Patch node. Don't hard-code.
+3. **Branch policy** — auto-create `fix/<issue-key>` off `main` (or a
+   user-configurable base). Branch name is already in `result.branch`
+   but we don't create it today.
+4. **Working tree contamination** — must NOT touch uncommitted state in
+   the user's actual working tree. Use a git worktree under
+   `/tmp/bug-fix/<run-id>/` or similar.
+5. **Status / progress** — Patch is long-running (minutes). Need
+   intermediate progress events (file-by-file). Map them onto the
+   canvas tile so the user sees something.
+
+### Available infrastructure
+
+- `git-mcp` MCP server in
+  `/Users/zhangjingzheng/Desktop/ai/Test/Aeolus/mcp/git-mcp` —
+  inspect for branch/clone/diff tools.
+- Possibly Claude Code CLI on the user's machine. Check `which claude`.
+
+### Scope cut for first pass
+
+Don't try to autonomously fix complex bugs. Limit to:
+
+- Single-repo, single-file edits.
+- Skip if Analyze's `affected_areas` is empty.
+- Emit a single `Patch` progress event per file edited.
+- Result includes a list of `files_changed` plus the raw diff.
+
+## F3c — Test (real)
+
+### Goal
+
+Verify the patch by running the project's tests; fail the run if they
+don't pass.
+
+### Open design questions
+
+1. **Which command?** Per-repo. Options:
+   - Canvas node "Test Config" carrying the command string.
+   - Convention: `<repo>/.bugfix/test.sh` if present.
+   - Recommendation: Test Config node, persist via `useNodeState`.
+2. **Subprocess vs container** — direct subprocess is simplest but
+   trusts the command. Containers (Docker) are safer but heavyweight.
+   For first pass: direct subprocess.
+3. **What counts as failure?** Exit code != 0 → fail. Surface stdout
+   tail (last ~50 lines) in the Done payload.
+4. **Timeout** — needs one. Default 5 minutes, configurable on the node.
+
+### Scope cut for first pass
+
+- Subprocess `bash -c <cmd>` from the repo path used by Patch.
+- Timeout: 300s default, override via node config.
+- Emit `Test` progress with "Running tests / Done / Failed".
+- Result: `tests_passed: bool`, `tests_output_tail: str`.
+
+## F3d — Open PR (real)
+
+### Goal
+
+Push the fix branch and open a PR on Bitbucket pointing at the Jira
+issue. No auto-merge.
+
+### Open design questions
+
+1. **Bitbucket MCP** — user has
+   `/Users/zhangjingzheng/Desktop/ai/Test/Aeolus/mcp/bitbucket`. Inspect
+   for available tools (`pullrequest_create`?, `git_push`?, etc.).
+2. **Git push** — branch needs to exist remotely. The MCP may handle
+   this; otherwise call `git push --set-upstream` from a subprocess.
+3. **PR body** — auto-fill with:
+   - Title: `<issue-key>: <jira summary>`
+   - Body: link back to Jira + Analyze hypothesis + Patch summary.
+4. **Reviewer policy** — probably leave reviewers empty for v1.
+
+### Scope cut for first pass
+
+- Reuse Bitbucket MCP tool to create PR.
+- Source: branch made in Patch. Target: configurable, default `main`.
+- Result: `pr_url`, `pr_id`.
+
+## Cross-cutting concerns
+
+- **Cancellation** — `context.is_cancelled()` is checked before each
+  stage. Long stages (Patch / Test) should poll it during work too.
+- **Per-node model selection** — already supported via
+  `STAGES_THAT_USE_AN_LLM`. When Patch lands, add it to that set so the
+  selector renders on Patch nodes.
+- **Per-node config persistence** — `useNodeState(id, 'key', default)`.
+  Snapshot lifted into `node.data` by `run-dialog.tsx`. Mirror this for
+  Repo Path, Test Config, PR Config when needed.
+- **Result payload growth** — be careful: `FlowRun.results` is a JSON
+  blob stored in SQLite. Patch diffs can be large; cap at e.g. 100 KB
+  and put the rest behind a separate fetch if necessary.
+
+## Suggested execution order
+
+1. **F3b/Patch first** with the smallest possible scope (Claude Code
+   single-file edit, in a temp worktree). Gives the most leverage.
+2. **F3d/Open PR** next; it's relatively self-contained once a branch
+   with the diff exists.
+3. **F3c/Test** last; it's the cheapest to bolt on between Patch and
+   Open PR, and the easiest to make optional.
+
+## Non-goals (deliberately out of scope)
+
+- Multi-repo or monorepo workspaces.
+- Auto-merging PRs.
+- Spawning sub-agents inside Patch (just call Claude Code, don't
+  re-implement an agent).
+- Replacing the Jira MCP with a direct REST client.

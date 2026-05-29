@@ -8,6 +8,8 @@ export interface Flow {
   data?: any;
   is_template: boolean;
   tags?: string[];
+  /** DomainPack id that owns this flow. Defaults to "finance" for legacy rows. */
+  domain: string;
   created_at: string;
   updated_at?: string;
 } 

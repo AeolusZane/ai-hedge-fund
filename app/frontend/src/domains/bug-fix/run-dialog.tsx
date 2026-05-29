@@ -55,10 +55,17 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
   const stopRunRef = useRef<(() => void) | null>(null);
 
   // Snapshot the canvas at submit time. Empty arrays = caller wants the
-  // default 5-stage sequence; the backend falls back gracefully.
+  // default sequence; the backend falls back gracefully. Both the input
+  // node (which performs the implicit fetch) and the stage tiles count.
   const canvasStageCount = useMemo(
-    () => reactFlow.getNodes().filter((n) => n.type === 'bug-fix-stage-node').length,
-    // Re-compute when the dialog opens so the badge reflects current canvas.
+    () =>
+      reactFlow
+        .getNodes()
+        .filter(
+          (n) =>
+            n.type === 'bug-fix-stage-node' ||
+            n.type === 'jira-issue-input-node'
+        ).length,
     [reactFlow, open]
   );
 
@@ -124,12 +131,18 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     abortRef.current = controller;
 
     // Snapshot the canvas at submit time so node ids in progress events
-    // line up with whatever the user can see. For LLM-using stages
-    // (today: Analyze), fold in the per-node model preference stored
-    // via useNodeState — the backend reads it from node.data.
-    const stageNodes = reactFlow
+    // line up with whatever the user can see. The Jira Issue Input node
+    // is included alongside the stage tiles — it performs the implicit
+    // fetch as the first runnable node. For LLM-using stages (today:
+    // Analyze), fold in the per-node model preference stored via
+    // useNodeState — the backend reads it from node.data.
+    const runnableNodes = reactFlow
       .getNodes()
-      .filter((n) => n.type === 'bug-fix-stage-node')
+      .filter(
+        (n) =>
+          n.type === 'bug-fix-stage-node' ||
+          n.type === 'jira-issue-input-node'
+      )
       .map((n) => {
         const internal = getNodeInternalState(n.id);
         if (!internal) return n;
@@ -142,14 +155,14 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
           },
         };
       });
-    const stageNodeIds = new Set(stageNodes.map((n) => n.id));
-    const stageEdges = reactFlow
+    const runnableIds = new Set(runnableNodes.map((n) => n.id));
+    const runnableEdges = reactFlow
       .getEdges()
-      .filter((e) => stageNodeIds.has(e.source) && stageNodeIds.has(e.target));
+      .filter((e) => runnableIds.has(e.source) && runnableIds.has(e.target));
 
-    // Reset every stage node to IDLE so previous run colors don't bleed in.
-    if (stageNodes.length > 0) {
-      updateAgentNodes(flowKey, Array.from(stageNodeIds), 'IDLE');
+    // Reset every runnable node to IDLE so previous run colors don't bleed in.
+    if (runnableNodes.length > 0) {
+      updateAgentNodes(flowKey, Array.from(runnableIds), 'IDLE');
     }
 
     try {
@@ -160,8 +173,8 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
           payload: {
             jira_issue: trimmed,
             stage_delay_seconds: 0.1,
-            graph_nodes: stageNodes,
-            graph_edges: stageEdges,
+            graph_nodes: runnableNodes,
+            graph_edges: runnableEdges,
           },
         }),
         signal: controller.signal,

@@ -62,10 +62,6 @@ const baseNodeTypeDefinitions: Record<string, NodeTypeDefinition> = {
       },
     }),
   },
-  "Fetch Jira": bugFixStage(
-    "Fetch Jira",
-    "Pull the issue summary, status, and comments from Jira via MCP."
-  ),
   "Analyze": bugFixStage(
     "Analyze",
     "Reason about the root cause from the Jira description + linked code."
