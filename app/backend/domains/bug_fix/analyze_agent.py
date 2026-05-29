@@ -1,35 +1,28 @@
 """Analyze stage — turns a Jira issue into a structured root-cause hypothesis.
 
-A single Claude call reads the issue's summary, description, and most
-recent comments, and returns a JSON blob with the root-cause guess, the
-parts of the system likely involved, and a suggested fix direction. The
-prompt is deliberately terse: we want a starting point for a human (or a
-later Patch agent), not a definitive diagnosis.
+Provider-agnostic: dispatches through the shared LLM registry
+(`src.llm.models.get_model`) so any backend the platform already knows
+about (Anthropic, DeepSeek, OpenAI, Google, Groq, Kimi, Ollama, …) can
+power the Analyze call without changes here. Caller picks the model
+by passing model_name + model_provider; the executor forwards the
+choice from the request.
 """
 from __future__ import annotations
 
 import json
 import os
-from typing import Any
+from typing import Any, Optional
 
-from anthropic import AsyncAnthropic
+from src.llm.models import ModelProvider, get_model
 
 
-_MODEL = os.getenv("BUG_FIX_ANALYZE_MODEL", "claude-sonnet-4-6")
+_DEFAULT_PROVIDER = os.getenv("BUG_FIX_ANALYZE_PROVIDER", "Anthropic")
+_DEFAULT_MODEL = os.getenv("BUG_FIX_ANALYZE_MODEL", "claude-sonnet-4-6")
 _MAX_COMMENTS = 8
 
 
 class AnalyzeConfigError(RuntimeError):
-    """Raised when the Anthropic credentials are missing or stubbed."""
-
-
-def _require_api_key() -> str:
-    key = os.getenv("ANTHROPIC_API_KEY") or ""
-    if not key or key.startswith("your-"):
-        raise AnalyzeConfigError(
-            "ANTHROPIC_API_KEY is not set (or still the .env.example placeholder)"
-        )
-    return key
+    """Raised when the chosen provider's credentials are missing."""
 
 
 def _build_prompt(jira: dict[str, Any]) -> str:
@@ -63,7 +56,6 @@ def _parse_analysis(text: str) -> dict[str, Any]:
     """Pull a JSON object out of the model's response, tolerating fences."""
     stripped = text.strip()
     if stripped.startswith("```"):
-        # ```json … ``` or ``` … ```
         stripped = stripped.split("\n", 1)[1] if "\n" in stripped else stripped
         if stripped.endswith("```"):
             stripped = stripped[: -3]
@@ -77,19 +69,42 @@ def _parse_analysis(text: str) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {"raw": text.strip()}
 
 
-async def analyze_jira_issue(jira_detail: dict[str, Any]) -> dict[str, Any]:
-    """Run the LLM analyze pass. Caller is responsible for catching errors."""
-    api_key = _require_api_key()
-    client = AsyncAnthropic(api_key=api_key)
+def _resolve_provider(name: str) -> ModelProvider:
+    try:
+        return ModelProvider(name)
+    except ValueError as e:
+        raise AnalyzeConfigError(f"Unknown provider {name!r}") from e
+
+
+async def analyze_jira_issue(
+    jira_detail: dict[str, Any],
+    *,
+    model_name: Optional[str] = None,
+    model_provider: Optional[str] = None,
+    api_keys: Optional[dict[str, str]] = None,
+) -> dict[str, Any]:
+    """Run the LLM analyze pass against the requested model.
+
+    Raises AnalyzeConfigError when the provider name is unknown or the
+    underlying client can't be constructed (e.g. missing API key).
+    """
+    chosen_model = model_name or _DEFAULT_MODEL
+    chosen_provider = _resolve_provider(model_provider or _DEFAULT_PROVIDER)
+
+    try:
+        llm = get_model(chosen_model, chosen_provider, api_keys=api_keys or {})
+    except Exception as e:  # ValueError on missing key, etc.
+        raise AnalyzeConfigError(str(e)) from e
+    if llm is None:
+        raise AnalyzeConfigError(
+            f"get_model returned None for {chosen_provider.value}/{chosen_model}"
+        )
+
     prompt = _build_prompt(jira_detail)
-    msg = await client.messages.create(
-        model=_MODEL,
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = ""
-    for block in msg.content:
-        # Only TextBlock has `.text`; tool-use blocks shouldn't appear here.
-        if getattr(block, "type", None) == "text":
-            text += getattr(block, "text", "")
+    # LangChain chat models accept a list of messages or a string. Use a
+    # string so we don't depend on which message-class flavour the
+    # provider supports.
+    response = await llm.ainvoke(prompt)
+    content = getattr(response, "content", response)
+    text = content if isinstance(content, str) else str(content)
     return _parse_analysis(text)

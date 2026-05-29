@@ -86,7 +86,12 @@ class BugFixExecutor(WorkflowExecutor):
             n for n in graph_nodes if n.get("type") == "bug-fix-stage-node"
         ]
 
-        state: dict[str, Any] = {"issue_key": issue_key}
+        state: dict[str, Any] = {
+            "issue_key": issue_key,
+            "analyze_model_name": request.get("analyze_model_name"),
+            "analyze_model_provider": request.get("analyze_model_provider"),
+            "api_keys": context.api_keys,
+        }
 
         if bug_fix_nodes:
             ordered = _topological_order(bug_fix_nodes, graph_edges)
@@ -164,7 +169,12 @@ class BugFixExecutor(WorkflowExecutor):
                 done_payload["error"] = state["analyze_error"]
             else:
                 try:
-                    analysis = await analyze_jira_issue(jira_detail)
+                    analysis = await analyze_jira_issue(
+                        jira_detail,
+                        model_name=state.get("analyze_model_name"),
+                        model_provider=state.get("analyze_model_provider"),
+                        api_keys=state.get("api_keys"),
+                    )
                     state["analysis"] = analysis
                     done_payload["root_cause_hypothesis"] = analysis.get(
                         "root_cause_hypothesis"
