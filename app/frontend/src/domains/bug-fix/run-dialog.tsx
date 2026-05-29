@@ -17,6 +17,11 @@ import { cn } from '@/lib/utils';
 import { useReactFlow } from '@xyflow/react';
 import { Loader2, Play, Square } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  registerRunTrigger,
+  registerStopTrigger,
+  setRunPhase,
+} from './run-controller';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -46,6 +51,8 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const startRunRef = useRef<(() => void) | null>(null);
+  const stopRunRef = useRef<(() => void) | null>(null);
 
   // Snapshot the canvas at submit time. Empty arrays = caller wants the
   // default 5-stage sequence; the backend falls back gracefully.
@@ -83,6 +90,29 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
       abortRef.current = null;
     }
   }, [open]);
+
+  // Mirror the dialog's phase into the shared store so the canvas Play
+  // button can swap to Stop while a run is in flight.
+  useEffect(() => {
+    setRunPhase(phase);
+  }, [phase]);
+
+  // Expose start/stop to the module-level controller so a canvas node
+  // (the Jira Issue Input's Play button) can request a run without
+  // opening the dialog first. We open it ourselves so the user still
+  // sees progress + result.
+  useEffect(() => {
+    return registerRunTrigger(() => {
+      onOpenChange(true);
+      // Defer to next microtask so the dialog has a chance to mount
+      // its inputs (the issue-key effect depends on `open`).
+      queueMicrotask(() => startRunRef.current?.());
+    });
+  }, [onOpenChange]);
+
+  useEffect(() => {
+    return registerStopTrigger(() => stopRunRef.current?.());
+  }, []);
 
   const startRun = useCallback(async () => {
     const trimmed = effectiveIssueKey.trim();
@@ -205,9 +235,16 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     }
   };
 
-  const stop = () => {
+  const stop = useCallback(() => {
     if (abortRef.current) abortRef.current.abort();
-  };
+  }, []);
+
+  // Keep refs aimed at the latest callbacks so the controller doesn't
+  // capture stale closures.
+  useEffect(() => {
+    startRunRef.current = startRun;
+    stopRunRef.current = stop;
+  }, [startRun, stop]);
 
   const running = phase === 'running';
 

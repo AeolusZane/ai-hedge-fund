@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { useDomain } from '@/core/contexts/domain-context';
 import { cn } from '@/lib/utils';
-import { PanelBottom, PanelLeft, PanelRight, Play, Settings } from 'lucide-react';
+import { PanelBottom, PanelLeft, PanelRight, Settings } from 'lucide-react';
 import { useState } from 'react';
 import { DomainSwitcher } from './domain-switcher';
 
@@ -26,26 +26,15 @@ export function TopBar({
 }: TopBarProps) {
   const { current } = useDomain();
   const RunDialog = current?.RunDialog;
+  // The dialog must stay mounted even though no top-bar button opens it
+  // anymore — canvas nodes call into a module-level controller that
+  // toggles `open` and starts a run.
   const [runDialogOpen, setRunDialogOpen] = useState(false);
 
   return (
     <div className="absolute top-0 right-0 z-40 flex items-center gap-0 py-1 px-2 bg-panel/80">
       {/* Workflow domain switcher */}
       <DomainSwitcher />
-
-      {/* Run button (only when the active domain provides a dialog-based runner) */}
-      {RunDialog && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setRunDialogOpen(true)}
-          className="h-8 gap-1.5 px-2 text-foreground hover:bg-ramp-grey-700"
-          title={`Run ${current?.name}`}
-        >
-          <Play size={14} />
-          <span className="text-sm">Run</span>
-        </Button>
-      )}
 
       {RunDialog && (
         <RunDialog open={runDialogOpen} onOpenChange={setRunDialogOpen} />
