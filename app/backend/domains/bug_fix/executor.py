@@ -17,6 +17,7 @@ from collections import deque
 from typing import Any
 
 from app.backend.core.executors import ExecutorContext, ProgressEvent, WorkflowExecutor
+from app.backend.domains.bug_fix.analyze_agent import AnalyzeConfigError, analyze_jira_issue
 from app.backend.domains.bug_fix.jira_client import (
     JiraMcpConfigError,
     JiraMcpToolError,
@@ -154,6 +155,26 @@ class BugFixExecutor(WorkflowExecutor):
             except Exception as e:  # network, spawn failure, etc.
                 state["jira_error"] = f"Jira MCP call failed: {e}"
                 done_payload["error"] = state["jira_error"]
+        elif stage_name == "Analyze":
+            jira_detail = state.get("jira_detail")
+            if not jira_detail:
+                state["analyze_error"] = (
+                    "Analyze requires Fetch Jira to run earlier in the graph"
+                )
+                done_payload["error"] = state["analyze_error"]
+            else:
+                try:
+                    analysis = await analyze_jira_issue(jira_detail)
+                    state["analysis"] = analysis
+                    done_payload["root_cause_hypothesis"] = analysis.get(
+                        "root_cause_hypothesis"
+                    )
+                except AnalyzeConfigError as e:
+                    state["analyze_error"] = f"Analyze not configured: {e}"
+                    done_payload["error"] = state["analyze_error"]
+                except Exception as e:
+                    state["analyze_error"] = f"Analyze failed: {e}"
+                    done_payload["error"] = state["analyze_error"]
         else:
             # Stub: sleep + report Done.
             await asyncio.sleep(delay)
@@ -183,4 +204,8 @@ class BugFixExecutor(WorkflowExecutor):
             result["summary"] = jira_detail.get("summary") or f"Stub fix applied for {issue_key}"
         else:
             result["summary"] = f"Stub fix applied for {issue_key}"
+        if "analysis" in state:
+            result["analysis"] = state["analysis"]
+        if state.get("analyze_error"):
+            result["analyze_error"] = state["analyze_error"]
         return result

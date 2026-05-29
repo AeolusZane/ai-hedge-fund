@@ -297,6 +297,30 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
                   <div>Priority: <span className="text-foreground">{result.jira.priority}</span></div>
                 </div>
               )}
+              {result.analysis && (
+                <div className="border rounded-md p-2 space-y-1 text-xs bg-muted/20">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    LLM analysis
+                  </div>
+                  {result.analysis.root_cause_hypothesis && (
+                    <div><span className="text-muted-foreground">Root cause: </span>{result.analysis.root_cause_hypothesis}</div>
+                  )}
+                  {Array.isArray(result.analysis.affected_areas) && result.analysis.affected_areas.length > 0 && (
+                    <div><span className="text-muted-foreground">Areas: </span>{result.analysis.affected_areas.join(', ')}</div>
+                  )}
+                  {Array.isArray(result.analysis.suggested_approach) && result.analysis.suggested_approach.length > 0 && (
+                    <div>
+                      <span className="text-muted-foreground">Approach:</span>
+                      <ul className="list-disc pl-4">
+                        {result.analysis.suggested_approach.map((s: string, i: number) => <li key={i}>{s}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+              {result.analyze_error && (
+                <div className="text-xs text-destructive">Analyze: {result.analyze_error}</div>
+              )}
               {result.pr_url && (
                 <div className="text-xs">
                   Stub PR: <a className="underline" href={result.pr_url} target="_blank" rel="noreferrer">{result.pr_url}</a>
