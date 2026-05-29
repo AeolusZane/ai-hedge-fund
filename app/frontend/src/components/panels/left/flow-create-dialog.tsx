@@ -8,6 +8,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { useDomain } from '@/core/contexts/domain-context';
 import { useToastManager } from '@/hooks/use-toast-manager';
 import { flowService } from '@/services/flow-service';
 import { Flow } from '@/types/flow';
@@ -24,6 +25,7 @@ export function FlowCreateDialog({ isOpen, onClose, onFlowCreated }: FlowCreateD
   const [description, setDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { success, error } = useToastManager();
+  const { current: currentDomain } = useDomain();
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -47,6 +49,9 @@ export function FlowCreateDialog({ isOpen, onClose, onFlowCreated }: FlowCreateD
         nodes: [],
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
+        // Tag the new flow with the active domain so it shows up in the
+        // sidebar (which filters by currentDomain).
+        domain: currentDomain?.id,
       });
       
       success(`"${newFlow.name}" created!`);

@@ -41,7 +41,7 @@ def _ensure_flow_domain_column() -> None:
             conn.execute(
                 text(
                     "ALTER TABLE hedge_fund_flows ADD COLUMN domain "
-                    "VARCHAR(64) NOT NULL DEFAULT 'finance'"
+                    "VARCHAR(64) NOT NULL DEFAULT 'bug_fix'"
                 )
             )
             conn.commit()

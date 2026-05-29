@@ -36,7 +36,7 @@ async def create_flow(request: FlowCreateRequest, db: Session = Depends(get_db))
             data=request.data,
             is_template=request.is_template,
             tags=request.tags,
-            domain=request.domain or "finance",
+            domain=request.domain or "bug_fix",
         )
         return FlowResponse.from_orm(flow)
     except Exception as e:

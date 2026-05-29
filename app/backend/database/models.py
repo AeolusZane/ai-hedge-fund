@@ -26,9 +26,10 @@ class HedgeFundFlow(Base):
     tags = Column(JSON, nullable=True)  # Store tags for categorization
 
     # Which workflow domain owns this flow. Matches DomainPack.id on the
-    # frontend (e.g. "finance", "bug_fix"). Pre-existing rows are
-    # backfilled to "finance" by the startup migration.
-    domain = Column(String(64), nullable=False, default="finance", index=True)
+    # frontend. The coding branch only ships the bug_fix domain, so that
+    # is the default; the startup migration backfills pre-existing rows
+    # to the same value.
+    domain = Column(String(64), nullable=False, default="bug_fix", index=True)
 
 
 class HedgeFundFlowRun(Base):
