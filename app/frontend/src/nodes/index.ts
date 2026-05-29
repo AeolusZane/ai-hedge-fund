@@ -3,6 +3,7 @@ import { Edge, type NodeTypes } from '@xyflow/react';
 import { AgentNode } from './components/agent-node';
 import { BugFixStageNode } from './components/bug-fix-stage-node';
 import { InvestmentReportNode } from './components/investment-report-node';
+import { JiraIssueInputNode } from './components/jira-issue-input-node';
 import { JsonOutputNode } from './components/json-output-node';
 import { PortfolioManagerNode } from './components/portfolio-manager-node';
 import { PortfolioStartNode } from './components/portfolio-start-node';
@@ -58,4 +59,5 @@ export const nodeTypes = {
   'portfolio-manager-node': PortfolioManagerNode,
   'stock-analyzer-node': StockAnalyzerNode,
   'bug-fix-stage-node': BugFixStageNode,
+  'jira-issue-input-node': JiraIssueInputNode,
 } satisfies NodeTypes;

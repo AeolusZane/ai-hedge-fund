@@ -14,6 +14,12 @@ const bugFixDomain: DomainPack = {
   nodeTypes: [],
   getComponentGroups: async () => [
     {
+      name: 'Inputs',
+      icon: Inbox,
+      iconColor: 'text-blue-500',
+      items: [{ name: 'Jira Issue Input', icon: Inbox }],
+    },
+    {
       name: 'Bug Fix Stages',
       icon: Wrench,
       iconColor: 'text-amber-500',

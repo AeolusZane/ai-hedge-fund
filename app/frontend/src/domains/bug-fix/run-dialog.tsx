@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { useFlowContext } from '@/contexts/flow-context';
 import { useNodeContext } from '@/contexts/node-context';
 import type { DomainRunDialogProps } from '@/core/types/domain-pack';
+import { getNodeInternalState } from '@/hooks/use-node-state';
 import { cn } from '@/lib/utils';
 import { useReactFlow } from '@xyflow/react';
 import { Loader2, Play, Square } from 'lucide-react';
@@ -54,6 +55,20 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     [reactFlow, open]
   );
 
+  // If the canvas has a JiraIssueInputNode, the issue key lives there
+  // (persisted via useNodeState). The dialog's own input box is hidden.
+  const canvasIssueKey = useMemo(() => {
+    if (!open) return null;
+    const inputNode = reactFlow
+      .getNodes()
+      .find((n) => n.type === 'jira-issue-input-node');
+    if (!inputNode) return null;
+    const stored = getNodeInternalState(inputNode.id)?.issueKey;
+    return typeof stored === 'string' ? stored : '';
+  }, [reactFlow, open]);
+  const canvasOwnsIssue = canvasIssueKey !== null;
+  const effectiveIssueKey = canvasOwnsIssue ? canvasIssueKey ?? '' : issueKey;
+
   const reset = useCallback(() => {
     setPhase('idle');
     setProgress([]);
@@ -70,7 +85,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
   }, [open]);
 
   const startRun = useCallback(async () => {
-    const trimmed = issueKey.trim();
+    const trimmed = effectiveIssueKey.trim();
     if (!trimmed) return;
     reset();
     setPhase('running');
@@ -148,7 +163,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     } finally {
       abortRef.current = null;
     }
-  }, [issueKey, reset]);
+  }, [effectiveIssueKey, reset]);
 
   const handleEvent = (data: any) => {
     if (!data || typeof data !== 'object') return;
@@ -204,22 +219,33 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
 
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <Input
-              autoFocus
-              placeholder="Jira issue key (e.g. BI-158957)"
-              value={issueKey}
-              onChange={(e) => setIssueKey(e.target.value)}
-              disabled={running}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') startRun();
-              }}
-            />
+            {canvasOwnsIssue ? (
+              <div className="flex-1 flex items-center gap-2 border rounded-md px-3 py-1.5 bg-muted/40 text-xs">
+                <Badge variant="outline" className="text-[10px]">
+                  from canvas
+                </Badge>
+                <span className="font-mono">
+                  {effectiveIssueKey.trim() || '(empty — edit the Jira Issue Input node)'}
+                </span>
+              </div>
+            ) : (
+              <Input
+                autoFocus
+                placeholder="Jira issue key (e.g. BI-158957)"
+                value={issueKey}
+                onChange={(e) => setIssueKey(e.target.value)}
+                disabled={running}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') startRun();
+                }}
+              />
+            )}
             {running ? (
               <Button variant="destructive" onClick={stop}>
                 <Square className="mr-2 h-4 w-4" /> Stop
               </Button>
             ) : (
-              <Button onClick={startRun} disabled={!issueKey.trim()}>
+              <Button onClick={startRun} disabled={!effectiveIssueKey.trim()}>
                 <Play className="mr-2 h-4 w-4" /> Run
               </Button>
             )}

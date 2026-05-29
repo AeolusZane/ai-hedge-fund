@@ -51,6 +51,17 @@ const bugFixStage = (name: string, description: string): NodeTypeDefinition => (
 
 // Define base node creation functions (non-agent nodes)
 const baseNodeTypeDefinitions: Record<string, NodeTypeDefinition> = {
+  "Jira Issue Input": {
+    createNode: (position) => ({
+      id: `jira_issue_input_${generateUniqueIdSuffix()}`,
+      type: "jira-issue-input-node",
+      position,
+      data: {
+        name: "Jira Issue Input",
+        description: "Persistent issue key consumed by the bug_fix runner.",
+      },
+    }),
+  },
   "Fetch Jira": bugFixStage(
     "Fetch Jira",
     "Pull the issue summary, status, and comments from Jira via MCP."
