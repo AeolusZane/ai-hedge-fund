@@ -11,8 +11,9 @@ import {
 import { Input } from '@/components/ui/input';
 import type { DomainRunDialogProps } from '@/core/types/domain-pack';
 import { cn } from '@/lib/utils';
+import { useReactFlow } from '@xyflow/react';
 import { Loader2, Play, Square } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -32,12 +33,21 @@ interface ProgressItem {
  * closes the SSE connection on the backend.
  */
 export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
+  const reactFlow = useReactFlow();
   const [issueKey, setIssueKey] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState<ProgressItem[]>([]);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Snapshot the canvas at submit time. Empty arrays = caller wants the
+  // default 5-stage sequence; the backend falls back gracefully.
+  const canvasStageCount = useMemo(
+    () => reactFlow.getNodes().filter((n) => n.type === 'bug-fix-stage-node').length,
+    // Re-compute when the dialog opens so the badge reflects current canvas.
+    [reactFlow, open]
+  );
 
   const reset = useCallback(() => {
     setPhase('idle');
@@ -63,12 +73,27 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // Snapshot the canvas at submit time so node ids in progress events
+    // line up with whatever the user can see.
+    const stageNodes = reactFlow
+      .getNodes()
+      .filter((n) => n.type === 'bug-fix-stage-node');
+    const stageNodeIds = new Set(stageNodes.map((n) => n.id));
+    const stageEdges = reactFlow
+      .getEdges()
+      .filter((e) => stageNodeIds.has(e.source) && stageNodeIds.has(e.target));
+
     try {
       const response = await fetch(`${API_BASE_URL}/workflows/bug_fix/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          payload: { jira_issue: trimmed, stage_delay_seconds: 0.1 },
+          payload: {
+            jira_issue: trimmed,
+            stage_delay_seconds: 0.1,
+            graph_nodes: stageNodes,
+            graph_edges: stageEdges,
+          },
         }),
         signal: controller.signal,
       });
@@ -141,10 +166,19 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Run Bug Fix</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            Run Bug Fix
+            <Badge variant={canvasStageCount > 0 ? 'success' : 'secondary'} className="text-[10px]">
+              {canvasStageCount > 0
+                ? `${canvasStageCount} stage${canvasStageCount === 1 ? '' : 's'} from canvas`
+                : 'default 5-stage sequence'}
+            </Badge>
+          </DialogTitle>
           <DialogDescription>
-            Fetches the Jira issue and walks the stubbed analyze → patch → PR
-            stages. Only the Jira fetch hits the real MCP server today.
+            {canvasStageCount > 0
+              ? 'Stages run in the order defined by the canvas edges (topological).'
+              : 'No stage nodes on the canvas — falling back to the built-in sequence.'}
+            {' Only Fetch Jira hits the real MCP server today.'}
           </DialogDescription>
         </DialogHeader>
 
