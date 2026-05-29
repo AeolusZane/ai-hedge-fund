@@ -157,12 +157,12 @@ setup_database() {
     print_status "Setting up database..."
     
     # Database will be automatically created by the backend when it starts
-    print_status "Database: SQLite (hedge_fund.db)"
+    print_status "Database: SQLite (coding.db)"
     print_status "Location: Project root directory"
     print_status "Tables will be created automatically on first backend startup"
     
     # Check if database already exists
-    if [[ -f "../hedge_fund.db" ]]; then
+    if [[ -f "../coding.db" ]]; then
         print_success "Database file already exists!"
     else
         print_status "Database will be created when backend starts for the first time"
@@ -270,7 +270,7 @@ start_services() {
     print_status "Checking database initialization..."
     sleep 2  # Give backend time to initialize database
     
-    if [[ -f "../hedge_fund.db" ]]; then
+    if [[ -f "../coding.db" ]]; then
         print_success "Database initialized successfully!"
     else
         print_warning "Database file not found, but will be created on first API call"
@@ -308,7 +308,7 @@ start_services() {
     print_status "Frontend (Web Interface): http://localhost:5173"
     print_status "Backend (API): http://localhost:8000"
     print_status "API Documentation: http://localhost:8000/docs"
-    print_status "Database: SQLite (hedge_fund.db in project root)"
+    print_status "Database: SQLite (coding.db in project root)"
     echo ""
     print_status "Press Ctrl+C to stop both services"
     echo ""
@@ -370,7 +370,7 @@ if [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
     echo "  - Frontend: http://localhost:5173"
     echo "  - Backend API: http://localhost:8000"
     echo "  - API Docs: http://localhost:8000/docs"
-    echo "  - Database: SQLite file (hedge_fund.db) in project root"
+    echo "  - Database: SQLite file (coding.db) in project root"
     echo ""
     exit 0
 fi

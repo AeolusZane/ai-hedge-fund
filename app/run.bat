@@ -167,11 +167,11 @@ if not exist "..\.env" (
 
 REM Setup database
 echo %INFO% Setting up database...
-echo %INFO% Database: SQLite (hedge_fund.db)
+echo %INFO% Database: SQLite (coding.db)
 echo %INFO% Location: Project root directory
 echo %INFO% Tables will be created automatically on first backend startup
 
-if exist "..\hedge_fund.db" (
+if exist "..\coding.db" (
     echo %SUCCESS% Database file already exists
 ) else (
     echo %INFO% Database will be created when backend starts for the first time
@@ -235,7 +235,7 @@ REM Check database initialization
 echo %INFO% Checking database initialization...
 timeout /t 2 /nobreak >nul
 
-if exist "..\hedge_fund.db" (
+if exist "..\coding.db" (
     echo %SUCCESS% Database initialized successfully
 ) else (
     echo %WARNING% Database file not found, but will be created on first API call
@@ -258,7 +258,7 @@ echo %SUCCESS% AI Hedge Fund web application is now running
 echo %INFO% Frontend: http://localhost:5173
 echo %INFO% Backend:  http://localhost:8000
 echo %INFO% Docs:     http://localhost:8000/docs
-echo %INFO% Database: SQLite (hedge_fund.db in project root)
+echo %INFO% Database: SQLite (coding.db in project root)
 echo.
 echo %INFO% Press any key to stop both services...
 pause >nul
