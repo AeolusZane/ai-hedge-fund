@@ -9,6 +9,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { useFlowContext } from '@/contexts/flow-context';
+import { useNodeContext } from '@/contexts/node-context';
 import type { DomainRunDialogProps } from '@/core/types/domain-pack';
 import { cn } from '@/lib/utils';
 import { useReactFlow } from '@xyflow/react';
@@ -34,6 +36,9 @@ interface ProgressItem {
  */
 export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
   const reactFlow = useReactFlow();
+  const { currentFlowId } = useFlowContext();
+  const { updateAgentNode, updateAgentNodes } = useNodeContext();
+  const flowKey = currentFlowId?.toString() || null;
   const [issueKey, setIssueKey] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState<ProgressItem[]>([]);
@@ -82,6 +87,11 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     const stageEdges = reactFlow
       .getEdges()
       .filter((e) => stageNodeIds.has(e.source) && stageNodeIds.has(e.target));
+
+    // Reset every stage node to IDLE so previous run colors don't bleed in.
+    if (stageNodes.length > 0) {
+      updateAgentNodes(flowKey, Array.from(stageNodeIds), 'IDLE');
+    }
 
     try {
       const response = await fetch(`${API_BASE_URL}/workflows/bug_fix/run`, {
@@ -147,6 +157,16 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
         ...prev,
         { agent: data.agent ?? null, status: data.status ?? '' },
       ]);
+      // Light up the matching canvas node (no-op when the executor used
+      // the default 5-stage fallback because those agent ids are stage
+      // keys, not canvas ids).
+      if (data.agent) {
+        updateAgentNode(
+          flowKey,
+          data.agent,
+          data.status === 'Done' ? 'COMPLETE' : 'IN_PROGRESS'
+        );
+      }
     } else if (data.type === 'complete') {
       setResult(data.data);
       setPhase('complete');

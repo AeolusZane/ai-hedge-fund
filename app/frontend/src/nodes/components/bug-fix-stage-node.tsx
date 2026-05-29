@@ -1,8 +1,10 @@
 import { CardContent } from '@/components/ui/card';
+import { useFlowContext } from '@/contexts/flow-context';
+import { useNodeContext } from '@/contexts/node-context';
 import { cn } from '@/lib/utils';
+import type { NodeStatus } from '@/nodes/utils';
 import { type NodeProps } from '@xyflow/react';
 import { Wrench } from 'lucide-react';
-import type { NodeStatus } from '@/nodes/utils';
 import type { BugFixStageNode } from '../types';
 import { getStatusColor } from '../utils';
 import { NodeShell } from './node-shell';
@@ -10,10 +12,9 @@ import { NodeShell } from './node-shell';
 /**
  * Bug-fix stage node — the canvas counterpart to one bug_fix executor stage.
  *
- * E1: visual only. The node carries name/description/status and renders the
- * shared NodeShell with the wrench icon used elsewhere for the bug_fix
- * domain. Wiring this onto a real graph-driven Run flow is a follow-up
- * phase; today the Run button still uses the dialog.
+ * Status is sourced from the shared NodeContext (same pattern as AgentNode),
+ * so progress events streamed by the RunDialog can light up the right tile
+ * as the executor walks the graph.
  */
 export function BugFixStageNode({
   data,
@@ -21,20 +22,31 @@ export function BugFixStageNode({
   id,
   isConnectable,
 }: NodeProps<BugFixStageNode>) {
-  const status: NodeStatus = (data.status as NodeStatus) ?? 'IDLE';
+  const { currentFlowId } = useFlowContext();
+  const { getAgentNodeDataForFlow } = useNodeContext();
+  const agentNodeData = getAgentNodeDataForFlow(currentFlowId?.toString() || null);
+  const liveStatus = agentNodeData[id]?.status as NodeStatus | undefined;
+  const status: NodeStatus = liveStatus ?? (data.status as NodeStatus) ?? 'IDLE';
+  const isInProgress = status === 'IN_PROGRESS';
+
   return (
     <NodeShell
       id={id}
       selected={selected}
       isConnectable={isConnectable}
       icon={<Wrench className="h-5 w-5" />}
-      iconColor="text-amber-500"
+      iconColor={getStatusColor(status)}
       name={data.name}
       description={data.description}
       status={status}
     >
-      <CardContent className="pt-2 pb-3 text-xs text-muted-foreground">
-        <div className={cn('flex items-center justify-between')}>
+      <CardContent
+        className={cn(
+          'pt-2 pb-3 text-xs text-muted-foreground',
+          isInProgress && 'gradient-animation'
+        )}
+      >
+        <div className="flex items-center justify-between">
           <span>Stage</span>
           <span className={cn('font-mono', getStatusColor(status))}>{status}</span>
         </div>
