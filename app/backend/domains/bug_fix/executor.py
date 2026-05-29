@@ -23,6 +23,8 @@ from app.backend.domains.bug_fix.jira_client import (
     JiraMcpToolError,
     get_issue_detail,
 )
+from app.backend.domains.bug_fix.patch_agent import PatchConfigError, run_patch
+from app.backend.domains.bug_fix.pr_agent import PrConfigError, open_pr
 
 
 # Default stages run in order when the caller doesn't draw a graph.
@@ -42,6 +44,8 @@ class JiraFetchError(RuntimeError):
 def _stage_label(name: str) -> str:
     return {
         "Jira Issue Input": "Fetching Jira issue",
+        "Repo Path Input": "Recording repo path",
+        "PR Config": "Recording PR target",
         "Analyze": "Analyzing root cause",
         "Patch": "Drafting patch",
         "Test": "Running tests",
@@ -75,7 +79,12 @@ def _topological_order(
     return [by_id[nid] for nid in ordered]
 
 
-_RUNNABLE_TYPES = {"jira-issue-input-node", "bug-fix-stage-node"}
+_RUNNABLE_TYPES = {
+    "jira-issue-input-node",
+    "repo-path-input-node",
+    "pr-config-node",
+    "bug-fix-stage-node",
+}
 
 
 class BugFixExecutor(WorkflowExecutor):
@@ -126,6 +135,10 @@ class BugFixExecutor(WorkflowExecutor):
             node_id = n["id"]
             if node_type == "jira-issue-input-node":
                 stage_name = "Jira Issue Input"
+            elif node_type == "repo-path-input-node":
+                stage_name = "Repo Path Input"
+            elif node_type == "pr-config-node":
+                stage_name = "PR Config"
             else:
                 stage_name = node_data.get("name", "")
             stages_executed.append({"node_id": node_id, "name": stage_name})
@@ -188,9 +201,18 @@ class BugFixExecutor(WorkflowExecutor):
 
         if node_type == "jira-issue-input-node":
             await self._do_fetch(node_id, state, done_payload, context)
+        elif node_type == "repo-path-input-node":
+            self._do_repo_path(node_data, state, done_payload)
+        elif node_type == "pr-config-node":
+            self._do_pr_config(node_data, state, done_payload)
         elif stage_name == "Analyze":
             await self._do_analyze(node_data, state, done_payload)
+        elif stage_name == "Patch":
+            await self._do_patch(state, done_payload)
+        elif stage_name == "Open PR":
+            await self._do_open_pr(state, done_payload)
         else:
+            # Stub: sleep + report Done (Test stage still uses this).
             await asyncio.sleep(delay)
 
         context.emit(ProgressEvent(node_id=node_id, status="Done", payload=done_payload))
@@ -260,17 +282,104 @@ class BugFixExecutor(WorkflowExecutor):
         state["analysis"] = analysis
         done_payload["root_cause_hypothesis"] = analysis.get("root_cause_hypothesis")
 
+    def _do_repo_path(
+        self,
+        node_data: dict[str, Any],
+        state: dict[str, Any],
+        done_payload: dict[str, Any],
+    ) -> None:
+        repo_path = str(node_data.get("repoPath") or "").strip()
+        if not repo_path:
+            done_payload["error"] = "Repo Path Input is empty"
+            return
+        state["repo_path"] = repo_path
+        done_payload["repo_path"] = repo_path
+
+    def _do_pr_config(
+        self,
+        node_data: dict[str, Any],
+        state: dict[str, Any],
+        done_payload: dict[str, Any],
+    ) -> None:
+        project = str(node_data.get("project") or "").strip()
+        repo = str(node_data.get("repo") or "").strip()
+        target_branch = str(node_data.get("targetBranch") or "main").strip()
+        missing = [n for n, v in (("project", project), ("repo", repo)) if not v]
+        if missing:
+            done_payload["error"] = f"PR Config missing: {', '.join(missing)}"
+            return
+        state["pr_project"] = project
+        state["pr_repo"] = repo
+        state["pr_target_branch"] = target_branch
+        done_payload.update(
+            {"project": project, "repo": repo, "target_branch": target_branch}
+        )
+
+    async def _do_patch(
+        self,
+        state: dict[str, Any],
+        done_payload: dict[str, Any],
+    ) -> None:
+        repo_path = state.get("repo_path")
+        jira_detail = state.get("jira_detail")
+        if not repo_path:
+            state["patch_error"] = "Patch requires a Repo Path Input upstream"
+            done_payload["error"] = state["patch_error"]
+            return
+        if not jira_detail:
+            state["patch_error"] = "Patch requires a Jira Issue Input upstream"
+            done_payload["error"] = state["patch_error"]
+            return
+        try:
+            result = await run_patch(repo_path, jira_detail, state.get("analysis"))
+        except PatchConfigError as e:
+            state["patch_error"] = str(e)
+            done_payload["error"] = state["patch_error"]
+            return
+        except Exception as e:
+            state["patch_error"] = f"Patch failed: {e}"
+            done_payload["error"] = state["patch_error"]
+            return
+        state["patch"] = result
+        done_payload["files_changed"] = result.get("files_changed", [])
+
+    async def _do_open_pr(
+        self,
+        state: dict[str, Any],
+        done_payload: dict[str, Any],
+    ) -> None:
+        jira_detail = state.get("jira_detail") or {}
+        try:
+            result = await open_pr(
+                repo_path=state.get("repo_path") or "",
+                issue_key=state.get("issue_key") or jira_detail.get("key") or "BUG",
+                summary=jira_detail.get("summary") or "",
+                target_branch=state.get("pr_target_branch") or "main",
+                project=state.get("pr_project") or "",
+                repo=state.get("pr_repo") or "",
+                analysis=state.get("analysis"),
+            )
+        except PrConfigError as e:
+            state["open_pr_error"] = str(e)
+            done_payload["error"] = state["open_pr_error"]
+            return
+        except Exception as e:
+            state["open_pr_error"] = f"Open PR failed: {e}"
+            done_payload["error"] = state["open_pr_error"]
+            return
+        state["open_pr"] = result
+        done_payload.update({"branch": result.get("branch")})
+
     def _build_result(
         self,
         issue_key: str,
         state: dict[str, Any],
         stages_executed: list[dict[str, str]],
     ) -> dict[str, Any]:
-        branch = f"fix/{issue_key.lower()}"
+        branch = (state.get("open_pr") or {}).get("branch") or f"fix/{issue_key.lower()}"
         result: dict[str, Any] = {
             "jira_issue": issue_key,
             "branch": branch,
-            "pr_url": f"https://example.invalid/pulls/{issue_key.lower()}",
             "stages_executed": stages_executed,
         }
         jira_detail = state.get("jira_detail")
@@ -279,8 +388,10 @@ class BugFixExecutor(WorkflowExecutor):
             result["summary"] = jira_detail.get("summary") or f"Stub fix applied for {issue_key}"
         else:
             result["summary"] = f"Stub fix applied for {issue_key}"
-        if "analysis" in state:
-            result["analysis"] = state["analysis"]
-        if state.get("analyze_error"):
-            result["analyze_error"] = state["analyze_error"]
+        for key in ("analysis", "patch", "open_pr"):
+            if key in state:
+                result[key] = state[key]
+        for key in ("analyze_error", "patch_error", "open_pr_error"):
+            if state.get(key):
+                result[key] = state[key]
         return result

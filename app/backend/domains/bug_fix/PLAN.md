@@ -1,22 +1,20 @@
 # Bug Fix Domain — Roadmap
 
-Status as of this commit: phases through F3a are landed. The Analyze
-stage runs against a real LLM (provider-agnostic via the shared
-`get_model()` registry). The remaining stages (Patch, Test, Open PR)
-are still stubs that sleep + report Done.
-
-This file captures the design intent and open questions for F3b/c/d so
-they survive a context reset.
+Status as of this commit: F3a (Analyze), F3b (Patch), and F3d (Open PR)
+are landed end-to-end. F3c (Test) deliberately stays stubbed because
+the user opted to defer it.
 
 ## Where each stage stands
 
 | Stage              | Real / stub | Notes |
 | ------------------ | ----------- | ----- |
 | Jira Issue Input   | real        | merged with Fetch Jira; performs MCP fetch as the first runnable node; fail-fast |
+| Repo Path Input    | real        | runnable input node; writes `state["repo_path"]` for Patch / Open PR |
+| PR Config          | real        | runnable input node; writes `state["pr_project"]`, `state["pr_repo"]`, `state["pr_target_branch"]` |
 | Analyze            | real        | LLM call via `get_model(model_name, model_provider, api_keys)`; per-node selector |
-| Patch              | stub        | F3b — see below |
-| Test               | stub        | F3c — see below |
-| Open PR            | stub        | F3d — see below |
+| Patch              | real        | spawns the `claude` CLI in `state["repo_path"]`, captures `git diff` + touched files |
+| Test               | stub        | F3c — deferred at user's request |
+| Open PR            | real        | `git checkout -B fix/<key>` → commit → push → Bitbucket MCP `bitbucket_create_pr` |
 
 ## Architecture invariants already established
 

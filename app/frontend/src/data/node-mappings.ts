@@ -46,6 +46,28 @@ const nodeTypeDefinitions: Record<string, NodeTypeDefinition> = {
       },
     }),
   },
+  'Repo Path Input': {
+    createNode: (position) => ({
+      id: `repo_path_input_${generateUniqueIdSuffix()}`,
+      type: 'repo-path-input-node',
+      position,
+      data: {
+        name: 'Repo Path Input',
+        description: 'Absolute path to the git repo Patch / Open PR will operate on.',
+      },
+    }),
+  },
+  'PR Config': {
+    createNode: (position) => ({
+      id: `pr_config_${generateUniqueIdSuffix()}`,
+      type: 'pr-config-node',
+      position,
+      data: {
+        name: 'PR Config',
+        description: 'Bitbucket project / repo / target branch for Open PR.',
+      },
+    }),
+  },
   Analyze: bugFixStage(
     'Analyze',
     'Reason about the root cause from the Jira description + linked code.'

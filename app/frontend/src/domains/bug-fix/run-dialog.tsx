@@ -64,7 +64,9 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
         .filter(
           (n) =>
             n.type === 'bug-fix-stage-node' ||
-            n.type === 'jira-issue-input-node'
+            n.type === 'jira-issue-input-node' ||
+            n.type === 'repo-path-input-node' ||
+            n.type === 'pr-config-node'
         ).length,
     [reactFlow, open]
   );
@@ -141,17 +143,26 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
       .filter(
         (n) =>
           n.type === 'bug-fix-stage-node' ||
-          n.type === 'jira-issue-input-node'
+          n.type === 'jira-issue-input-node' ||
+          n.type === 'repo-path-input-node' ||
+          n.type === 'pr-config-node'
       )
       .map((n) => {
         const internal = getNodeInternalState(n.id);
         if (!internal) return n;
+        // Fold the per-node persisted state into node.data so the
+        // backend can read modelName, repoPath, project / repo /
+        // targetBranch, etc. directly.
         return {
           ...n,
           data: {
             ...n.data,
             ...(internal.modelName ? { modelName: internal.modelName } : {}),
             ...(internal.modelProvider ? { modelProvider: internal.modelProvider } : {}),
+            ...(internal.repoPath ? { repoPath: internal.repoPath } : {}),
+            ...(internal.project ? { project: internal.project } : {}),
+            ...(internal.repo ? { repo: internal.repo } : {}),
+            ...(internal.targetBranch ? { targetBranch: internal.targetBranch } : {}),
           },
         };
       });
@@ -385,10 +396,59 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
               {result.analyze_error && (
                 <div className="text-xs text-destructive">Analyze: {result.analyze_error}</div>
               )}
-              {result.pr_url && (
-                <div className="text-xs">
-                  Stub PR: <a className="underline" href={result.pr_url} target="_blank" rel="noreferrer">{result.pr_url}</a>
+
+              {result.patch && (
+                <div className="border rounded-md p-2 space-y-1 text-xs bg-muted/20">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    Patch
+                  </div>
+                  {Array.isArray(result.patch.files_changed) && result.patch.files_changed.length > 0 && (
+                    <div>
+                      <span className="text-muted-foreground">Files: </span>
+                      {result.patch.files_changed.join(', ')}
+                    </div>
+                  )}
+                  {result.patch.claude_output && (
+                    <details>
+                      <summary className="cursor-pointer text-muted-foreground">Claude output</summary>
+                      <pre className="whitespace-pre-wrap text-xs bg-background p-2 rounded max-h-48 overflow-auto">{result.patch.claude_output}</pre>
+                    </details>
+                  )}
+                  {result.patch.diff && (
+                    <details>
+                      <summary className="cursor-pointer text-muted-foreground">
+                        Diff{result.patch.diff_truncated ? ' (truncated)' : ''}
+                      </summary>
+                      <pre className="whitespace-pre-wrap text-xs bg-background p-2 rounded max-h-64 overflow-auto">{result.patch.diff}</pre>
+                    </details>
+                  )}
                 </div>
+              )}
+              {result.patch_error && (
+                <div className="text-xs text-destructive">Patch: {result.patch_error}</div>
+              )}
+
+              {result.open_pr && (
+                <div className="border rounded-md p-2 space-y-1 text-xs bg-muted/20">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    Open PR
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Branch: </span>
+                    <span className="font-mono">{result.open_pr.branch}</span>
+                  </div>
+                  {result.open_pr.pr && (
+                    <details>
+                      <summary className="cursor-pointer text-muted-foreground">Bitbucket payload</summary>
+                      <pre className="whitespace-pre-wrap text-xs bg-background p-2 rounded max-h-48 overflow-auto">
+                        {JSON.stringify(result.open_pr.pr, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              )}
+              {result.open_pr_error && (
+                <div className="text-xs text-destructive">Open PR: {result.open_pr_error}</div>
               )}
               <details className="text-xs">
                 <summary className="cursor-pointer text-muted-foreground">Raw payload</summary>
