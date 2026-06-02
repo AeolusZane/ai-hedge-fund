@@ -89,6 +89,43 @@ export function OutputTab({ className }: OutputTabProps) {
     return [];
   }, [nodeOutput, latestRun]);
 
+  // Extract per-stage output summary from the result object
+  const getStageOutput = (stageName: string): string | null => {
+    const result = nodeOutput.result;
+    if (!result || typeof result !== 'object') return null;
+
+    switch (stageName) {
+      case 'Jira Issue Input': {
+        const jira = result.jira;
+        if (jira?.summary) return jira.summary;
+        return null;
+      }
+      case 'Analyze': {
+        if (result.analyze_error) return `Error: ${result.analyze_error}`;
+        const analysis = result.analysis;
+        if (analysis?.root_cause_hypothesis) return analysis.root_cause_hypothesis;
+        if (analysis?.affected_areas?.length) return `Areas: ${analysis.affected_areas.join(', ')}`;
+        return null;
+      }
+      case 'Patch': {
+        if (result.patch_error) return `Error: ${result.patch_error}`;
+        const patch = result.patch;
+        if (patch?.status === 'blocked') return `Blocked: ${patch.blocker_reason ?? 'unknown'}`;
+        if (patch?.files_changed?.length) return `Changed: ${patch.files_changed.join(', ')}`;
+        return null;
+      }
+      case 'Open PR': {
+        if (result.open_pr_error) return `Error: ${result.open_pr_error}`;
+        const pr = result.open_pr;
+        if (pr?.pr?.url) return pr.pr.url;
+        if (pr?.branch) return `Branch: ${pr.branch}`;
+        return null;
+      }
+      default:
+        return null;
+    }
+  };
+
   // Format elapsed time
   const fmtElapsed = (s: number | null) => {
     if (s === null) return '';
@@ -148,49 +185,66 @@ export function OutputTab({ className }: OutputTabProps) {
             Waiting for first stage to report…
           </div>
         )}
-        {stageEntries.map((entry) => (
-          <div
-            key={entry.id}
-            className={cn(
-              "flex items-center gap-2 px-3 py-2 rounded-md transition-colors cursor-pointer",
-              entry.isRunning && "bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800",
-              entry.status === 'COMPLETE' && "bg-green-50/50 dark:bg-green-950/10",
-              entry.status === 'ERROR' && "bg-red-50/50 dark:bg-red-950/10",
-            )}
-            onClick={() => openStepDetail(entry.id, entry.name)}
-          >
-            {/* Status icon */}
-            <StatusIcon status={entry.status} />
+        {stageEntries.map((entry) => {
+          const outputSummary = getStageOutput(entry.name);
+          return (
+            <div
+              key={entry.id}
+              className={cn(
+                "px-3 py-2 rounded-md transition-colors cursor-pointer",
+                entry.isRunning && "bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800",
+                entry.status === 'COMPLETE' && "bg-green-50/50 dark:bg-green-950/10",
+                entry.status === 'ERROR' && "bg-red-50/50 dark:bg-red-950/10",
+              )}
+              onClick={() => openStepDetail(entry.id, entry.name)}
+            >
+              {/* Top row: icon + time + name + elapsed */}
+              <div className="flex items-center gap-2">
+                {/* Status icon */}
+                <StatusIcon status={entry.status} />
 
-            {/* Time */}
-            <span className="text-[11px] text-muted-foreground w-16 shrink-0">
-              {fmtTime(entry.startedAt)}
-            </span>
+                {/* Time */}
+                <span className="text-[11px] text-muted-foreground w-16 shrink-0">
+                  {fmtTime(entry.startedAt)}
+                </span>
 
-            {/* Stage name */}
-            <span className={cn(
-              "text-xs font-medium flex-1 truncate",
-              getStatusColor(entry.status)
-            )}>
-              {entry.name}
-            </span>
+                {/* Stage name */}
+                <span className={cn(
+                  "text-xs font-medium flex-1 truncate",
+                  getStatusColor(entry.status)
+                )}>
+                  {entry.name}
+                </span>
 
-            {/* Progress status */}
-            {entry.lastProgressStatus && entry.isRunning && (
-              <span className="text-[11px] text-muted-foreground truncate max-w-[120px]">
-                {entry.lastProgressStatus}
-              </span>
-            )}
+                {/* Progress status */}
+                {entry.lastProgressStatus && entry.isRunning && (
+                  <span className="text-[11px] text-muted-foreground truncate max-w-[120px]">
+                    {entry.lastProgressStatus}
+                  </span>
+                )}
 
-            {/* Elapsed */}
-            <span className={cn(
-              "text-[11px] font-medium w-12 shrink-0 text-right",
-              getStatusColor(entry.status)
-            )}>
-              {fmtElapsed(entry.elapsed)}
-            </span>
-          </div>
-        ))}
+                {/* Elapsed */}
+                <span className={cn(
+                  "text-[11px] font-medium w-12 shrink-0 text-right",
+                  getStatusColor(entry.status)
+                )}>
+                  {fmtElapsed(entry.elapsed)}
+                </span>
+              </div>
+
+              {/* Output summary row */}
+              {(outputSummary || entry.streamingLastLine) && (
+                <div className="mt-1 ml-7 text-[11px] text-muted-foreground truncate">
+                  {entry.isRunning && entry.streamingLastLine ? (
+                    <span className="italic">{entry.streamingLastLine}</span>
+                  ) : outputSummary ? (
+                    <span>{outputSummary}</span>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Live streaming preview */}
