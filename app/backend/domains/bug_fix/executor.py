@@ -384,6 +384,23 @@ class BugFixExecutor(WorkflowExecutor):
             or str(node_data.get("fromBranch") or "").strip()
             or f"fix/{issue_key.lower()}"
         )
+
+        # ── Commit + push the fix branch before creating the PR ──
+        repo_path = state.get("repo_path")
+        patch_result = state.get("patch") or {}
+        if repo_path and patch_result.get("status") == "applied":
+            try:
+                await self._commit_and_push(
+                    repo_path=repo_path,
+                    branch=from_branch,
+                    issue_key=issue_key,
+                    summary=jira_detail.get("summary") or "",
+                )
+            except Exception as e:
+                state["open_pr_error"] = f"Commit/push failed: {e}"
+                done_payload["error"] = state["open_pr_error"]
+                return
+
         try:
             result = await open_pr(
                 issue_key=issue_key,
@@ -404,6 +421,58 @@ class BugFixExecutor(WorkflowExecutor):
             return
         state["open_pr"] = result
         done_payload.update({"branch": result.get("branch")})
+
+    async def _commit_and_push(
+        self,
+        *,
+        repo_path: str,
+        branch: str,
+        issue_key: str,
+        summary: str,
+    ) -> None:
+        """Stage all changes, commit, and push the fix branch to origin."""
+        import os
+        from pathlib import Path
+
+        repo = Path(repo_path).expanduser()
+        commit_msg = f"{issue_key}: {summary}".strip() or issue_key
+
+        async def _git(*args: str) -> tuple[int, str, str]:
+            proc = await asyncio.create_subprocess_exec(
+                "git", *args,
+                cwd=str(repo),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=60)
+            return (
+                proc.returncode or 0,
+                out_b.decode(errors="replace"),
+                err_b.decode(errors="replace"),
+            )
+
+        # Stage all changes
+        rc, _, err = await _git("add", "-A")
+        if rc != 0:
+            raise RuntimeError(f"git add failed: {err.strip()}")
+
+        # Check if there's anything to commit
+        rc, stdout, _ = await _git("status", "--porcelain")
+        if not stdout.strip():
+            # Nothing to commit — branch may already have commits
+            pass
+        else:
+            rc, _, err = await _git("commit", "-m", commit_msg)
+            if rc != 0:
+                raise RuntimeError(f"git commit failed: {err.strip()}")
+
+        # Push the branch to origin
+        rc, _, err = await _git("push", "-u", "origin", branch)
+        if rc != 0:
+            # Try force push if the branch already exists remotely
+            rc, _, err = await _git("push", "-u", "origin", branch, "--force-with-lease")
+            if rc != 0:
+                raise RuntimeError(f"git push failed: {err.strip()}")
 
     def _build_result(
         self,

@@ -7,6 +7,7 @@ import type { NodeStatus } from '@/nodes/utils';
 import { getStatusColor, elapsedSeconds } from '@/nodes/utils';
 import { CheckCircle2, Clock, Loader2, XCircle, Pause } from 'lucide-react';
 import { openStepDetail } from '@/domains/bug-fix/step-detail-context';
+import { useNodes } from '@xyflow/react';
 import { useMemo } from 'react';
 
 interface OutputTabProps {
@@ -33,9 +34,16 @@ export function OutputTab({ className }: OutputTabProps) {
   const nodeOutput = useNodeOutput();
   const history = useRunHistory();
   const phase = useRunPhase();
+  const nodes = useNodes();
 
   const latestRun = history.runs[0];
   const isRunning = phase === 'running';
+
+  // Helper to look up stage name from node data
+  const getStageName = (agentId: string): string => {
+    const node = nodes.find(n => n.id === agentId);
+    return (node?.data as any)?.name ?? agentId;
+  };
 
   // Derive stage entries — prefer live data from node-output-store;
   // fall back to history stageSnapshots when live data is gone (e.g. after refresh).
@@ -59,7 +67,7 @@ export function OutputTab({ className }: OutputTabProps) {
 
         return {
           id: agentId,
-          name: agentId,
+          name: getStageName(agentId),
           status,
           startedAt,
           completedAt,
@@ -75,7 +83,7 @@ export function OutputTab({ className }: OutputTabProps) {
     if (latestRun?.stageSnapshots) {
       return Object.entries(latestRun.stageSnapshots).map(([agentId, snap]) => ({
         id: agentId,
-        name: agentId,
+        name: getStageName(agentId),
         status: snap.status,
         startedAt: snap.startedAt,
         completedAt: snap.completedAt,
