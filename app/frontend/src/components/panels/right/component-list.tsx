@@ -1,10 +1,13 @@
 import { Accordion } from '@/components/ui/accordion';
 import { ComponentGroup } from '@/core/types/component-group';
+import type { WorkflowTemplate } from '@/core/types/workflow-template';
 import { SearchBox } from '../search-box';
 import { ComponentItemGroup } from './component-item-group';
+import { TemplateGroup } from './template-group';
 
 interface ComponentListProps {
   componentGroups: ComponentGroup[];
+  templates?: WorkflowTemplate[];
   searchQuery: string;
   isLoading: boolean;
   openGroups: string[];
@@ -16,6 +19,7 @@ interface ComponentListProps {
 
 export function ComponentList({
   componentGroups,
+  templates = [],
   searchQuery,
   isLoading,
   openGroups,
@@ -24,6 +28,9 @@ export function ComponentList({
   onSearchChange,
   onAccordionChange,
 }: ComponentListProps) {
+  // Templates only show in the unfiltered view — the search box covers
+  // component item names, not template names.
+  const showTemplates = templates.length > 0 && searchQuery.trim() === '';
   return (
     <div className="flex-grow overflow-auto text-primary scrollbar-thin scrollbar-thumb-ramp-grey-700">
       <SearchBox 
@@ -37,19 +44,20 @@ export function ComponentList({
           <div className="text-muted-foreground text-sm">Loading components...</div>
         </div>
       ) : (
-        <Accordion 
-          type="multiple" 
-          className="w-full" 
-          value={openGroups} 
+        <Accordion
+          type="multiple"
+          className="w-full"
+          value={openGroups}
           onValueChange={onAccordionChange}
         >
           {filteredGroups.map(group => (
             <ComponentItemGroup
-              key={group.name} 
+              key={group.name}
               group={group}
               activeItem={activeItem}
             />
           ))}
+          {showTemplates && <TemplateGroup templates={templates} />}
         </Accordion>
       )}
 
