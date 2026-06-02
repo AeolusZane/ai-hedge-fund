@@ -5,7 +5,7 @@ import { ModelSelector } from '@/components/ui/llm-selector';
 import { useFlowContext } from '@/contexts/flow-context';
 import { useNodeContext } from '@/contexts/node-context';
 import { getModels, type LanguageModel } from '@/data/models';
-import { openRunDialog } from '@/domains/bug-fix/run-controller';
+import { NodeOutputDialog } from '@/domains/bug-fix/node-output-dialog';
 import { useNodeState } from '@/hooks/use-node-state';
 import { cn } from '@/lib/utils';
 import type { NodeStatus } from '@/nodes/utils';
@@ -60,6 +60,8 @@ export function BugFixStageNode({
   const [project, setProject] = useNodeState<string>(id, 'project', '');
   const [repo, setRepo] = useNodeState<string>(id, 'repo', '');
   const [targetBranch, setTargetBranch] = useNodeState<string>(id, 'targetBranch', 'main');
+
+  const [outputOpen, setOutputOpen] = useState(false);
 
 
   useEffect(() => {
@@ -132,11 +134,17 @@ export function BugFixStageNode({
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
-            openRunDialog();
+            setOutputOpen(true);
           }}
         >
           <Eye className="h-3 w-3" /> View output
         </Button>
+        <NodeOutputDialog
+          open={outputOpen}
+          onOpenChange={setOutputOpen}
+          agentId={id}
+          stageName={data.name}
+        />
         {needsModel && (
           <div
             className="space-y-1"

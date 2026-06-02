@@ -23,6 +23,13 @@ import {
   registerStopTrigger,
   setRunPhase,
 } from './run-controller';
+import {
+  appendProgress as storeAppendProgress,
+  appendStreamChunk as storeAppendStreamChunk,
+  resetNodeOutput as storeResetNodeOutput,
+  setPhase as storeSetPhase,
+  setResult as storeSetResult,
+} from './node-output-store';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -94,20 +101,21 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     setStreamingByAgent({});
     setResult(null);
     setError(null);
+    storeResetNodeOutput();
   }, []);
 
-  // Cancel any in-flight run when the dialog is closed.
-  useEffect(() => {
-    if (!open && abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
-  }, [open]);
+  // Closing the dialog should NOT kill the run — the dialog is a
+  // viewer for an SSE stream the run-controller owns. The user can
+  // explicitly hit Stop (here or on the Jira Issue Input node) to
+  // abort. Without this, reopening the dialog mid-run would surface
+  // "Run" instead of "Stop" because the abort had already cleared
+  // the phase.
 
   // Mirror the dialog's phase into the shared store so the canvas Play
   // button can swap to Stop while a run is in flight.
   useEffect(() => {
     setRunPhase(phase);
+    storeSetPhase(phase);
   }, [phase]);
 
   // Let canvas nodes pop the dialog open via the run-controller bus.
@@ -247,6 +255,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
           ...prev,
           [agent]: (prev[agent] ?? '') + data.chunk,
         }));
+        storeAppendStreamChunk(agent, data.chunk);
         if (data.agent) {
           updateAgentNode(flowKey, data.agent, 'IN_PROGRESS');
         }
@@ -256,6 +265,9 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
         ...prev,
         { agent: data.agent ?? null, status: data.status ?? '' },
       ]);
+      if (data.agent) {
+        storeAppendProgress(data.agent, data.status ?? '');
+      }
       // Light up the matching canvas node (no-op when the executor used
       // the default 5-stage fallback because those agent ids are stage
       // keys, not canvas ids).
@@ -268,6 +280,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
       }
     } else if (data.type === 'complete') {
       setResult(data.data);
+      storeSetResult(data.data);
       setPhase('complete');
     } else if (data.type === 'error') {
       setError(data.message ?? 'Run failed');

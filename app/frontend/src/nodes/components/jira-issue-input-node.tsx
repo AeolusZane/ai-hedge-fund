@@ -3,8 +3,8 @@ import { CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useFlowContext } from '@/contexts/flow-context';
 import { useNodeContext } from '@/contexts/node-context';
+import { NodeOutputDialog } from '@/domains/bug-fix/node-output-dialog';
 import {
-  openRunDialog,
   requestRun,
   requestStop,
   useRunPhase,
@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import type { NodeStatus } from '@/nodes/utils';
 import { type NodeProps } from '@xyflow/react';
 import { Eye, Inbox, Play, Square } from 'lucide-react';
+import { useState } from 'react';
 import type { JiraIssueInputNode } from '../types';
 import { getStatusColor } from '../utils';
 import { NodeShell } from './node-shell';
@@ -35,7 +36,13 @@ export function JiraIssueInputNode({
   const [issueKey, setIssueKey] = useNodeState<string>(id, 'issueKey', '');
   const phase = useRunPhase();
   const running = phase === 'running';
-  const canRun = !running && issueKey.trim().length > 0;
+  // Run is shown when idle, Stop when running. Disabling Run on the
+  // `running` flag is redundant because the button is hidden in that
+  // branch anyway. Gating only on issueKey lets a stale or stuck
+  // phase still recover with a single click.
+  const canRun = issueKey.trim().length > 0;
+
+  const [outputOpen, setOutputOpen] = useState(false);
 
   const { currentFlowId } = useFlowContext();
   const { getAgentNodeDataForFlow } = useNodeContext();
@@ -108,11 +115,17 @@ export function JiraIssueInputNode({
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              openRunDialog();
+              setOutputOpen(true);
             }}
           >
             <Eye className="h-3 w-3" /> View output
           </Button>
+          <NodeOutputDialog
+            open={outputOpen}
+            onOpenChange={setOutputOpen}
+            agentId={id}
+            stageName={data.name}
+          />
         </div>
       </CardContent>
     </NodeShell>
