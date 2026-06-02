@@ -5,14 +5,14 @@ import { ModelSelector } from '@/components/ui/llm-selector';
 import { useFlowContext } from '@/contexts/flow-context';
 import { useNodeContext } from '@/contexts/node-context';
 import { getModels, type LanguageModel } from '@/data/models';
-import { NodeOutputDialog } from '@/domains/bug-fix/node-output-dialog';
+
 import { useNodeOutput } from '@/domains/bug-fix/node-output-store';
 import { openStepDetail } from '@/domains/bug-fix/step-detail-context';
 import { useNodeState } from '@/hooks/use-node-state';
 import { cn } from '@/lib/utils';
 import type { NodeRunInfo, NodeStatus } from '@/nodes/utils';
 import { type NodeProps } from '@xyflow/react';
-import { Eye, Wrench } from 'lucide-react';
+import { Wrench } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { BugFixStageNode } from '../types';
 import { getStatusColor } from '../utils';
@@ -133,7 +133,7 @@ export function BugFixStageNode({
   // PR config (Open PR only)
   const [repoUrl, setRepoUrl] = useNodeState<string>(id, 'repoUrl', '');
 
-  const [outputOpen, setOutputOpen] = useState(false);
+
 
   useEffect(() => {
     if (!needsModel || models.length > 0) return;
@@ -205,24 +205,7 @@ export function BugFixStageNode({
             <span className="animate-pulse ml-1">▍</span>
           </div>
         )}
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full h-6 gap-1 text-[10px]"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            openStepDetail(id, data.name);
-          }}
-        >
-          <Eye className="h-3 w-3" /> View output
-        </Button>
-        <NodeOutputDialog
-          open={outputOpen}
-          onOpenChange={setOutputOpen}
-          agentId={id}
-          stageName={data.name}
-        />
+
         {needsModel && (
           <div
             className="space-y-1"
