@@ -44,8 +44,6 @@ class JiraFetchError(RuntimeError):
 def _stage_label(name: str) -> str:
     return {
         "Jira Issue Input": "Fetching Jira issue",
-        "Repo Path Input": "Recording repo path",
-        "PR Config": "Recording PR target",
         "Analyze": "Analyzing root cause",
         "Patch": "Drafting patch",
         "Test": "Running tests",
@@ -81,8 +79,6 @@ def _topological_order(
 
 _RUNNABLE_TYPES = {
     "jira-issue-input-node",
-    "repo-path-input-node",
-    "pr-config-node",
     "bug-fix-stage-node",
 }
 
@@ -135,10 +131,6 @@ class BugFixExecutor(WorkflowExecutor):
             node_id = n["id"]
             if node_type == "jira-issue-input-node":
                 stage_name = "Jira Issue Input"
-            elif node_type == "repo-path-input-node":
-                stage_name = "Repo Path Input"
-            elif node_type == "pr-config-node":
-                stage_name = "PR Config"
             else:
                 stage_name = node_data.get("name", "")
             stages_executed.append({"node_id": node_id, "name": stage_name})
@@ -201,16 +193,12 @@ class BugFixExecutor(WorkflowExecutor):
 
         if node_type == "jira-issue-input-node":
             await self._do_fetch(node_id, state, done_payload, context)
-        elif node_type == "repo-path-input-node":
-            self._do_repo_path(node_data, state, done_payload)
-        elif node_type == "pr-config-node":
-            self._do_pr_config(node_data, state, done_payload)
         elif stage_name == "Analyze":
             await self._do_analyze(node_data, state, done_payload)
         elif stage_name == "Patch":
-            await self._do_patch(state, done_payload)
+            await self._do_patch(node_data, state, done_payload)
         elif stage_name == "Open PR":
-            await self._do_open_pr(state, done_payload)
+            await self._do_open_pr(node_data, state, done_payload)
         else:
             # Stub: sleep + report Done (Test stage still uses this).
             await asyncio.sleep(delay)
@@ -282,54 +270,26 @@ class BugFixExecutor(WorkflowExecutor):
         state["analysis"] = analysis
         done_payload["root_cause_hypothesis"] = analysis.get("root_cause_hypothesis")
 
-    def _do_repo_path(
-        self,
-        node_data: dict[str, Any],
-        state: dict[str, Any],
-        done_payload: dict[str, Any],
-    ) -> None:
-        repo_path = str(node_data.get("repoPath") or "").strip()
-        if not repo_path:
-            done_payload["error"] = "Repo Path Input is empty"
-            return
-        state["repo_path"] = repo_path
-        done_payload["repo_path"] = repo_path
-
-    def _do_pr_config(
-        self,
-        node_data: dict[str, Any],
-        state: dict[str, Any],
-        done_payload: dict[str, Any],
-    ) -> None:
-        project = str(node_data.get("project") or "").strip()
-        repo = str(node_data.get("repo") or "").strip()
-        target_branch = str(node_data.get("targetBranch") or "main").strip()
-        missing = [n for n, v in (("project", project), ("repo", repo)) if not v]
-        if missing:
-            done_payload["error"] = f"PR Config missing: {', '.join(missing)}"
-            return
-        state["pr_project"] = project
-        state["pr_repo"] = repo
-        state["pr_target_branch"] = target_branch
-        done_payload.update(
-            {"project": project, "repo": repo, "target_branch": target_branch}
-        )
-
     async def _do_patch(
         self,
+        node_data: dict[str, Any],
         state: dict[str, Any],
         done_payload: dict[str, Any],
     ) -> None:
-        repo_path = state.get("repo_path")
+        # Per-node repoPath takes precedence; fall back to anything an
+        # upstream node already wrote to shared state.
+        repo_path = str(node_data.get("repoPath") or "").strip() or state.get("repo_path")
         jira_detail = state.get("jira_detail")
         if not repo_path:
-            state["patch_error"] = "Patch requires a Repo Path Input upstream"
+            state["patch_error"] = "Patch needs a repo path (fill the field on the Patch node)"
             done_payload["error"] = state["patch_error"]
             return
         if not jira_detail:
             state["patch_error"] = "Patch requires a Jira Issue Input upstream"
             done_payload["error"] = state["patch_error"]
             return
+        # Cache for downstream stages (Open PR needs the same path).
+        state["repo_path"] = repo_path
         try:
             result = await run_patch(repo_path, jira_detail, state.get("analysis"))
         except PatchConfigError as e:
@@ -345,18 +305,36 @@ class BugFixExecutor(WorkflowExecutor):
 
     async def _do_open_pr(
         self,
+        node_data: dict[str, Any],
         state: dict[str, Any],
         done_payload: dict[str, Any],
     ) -> None:
         jira_detail = state.get("jira_detail") or {}
+        # Per-node fields override anything inherited from state. Patch
+        # writes repo_path into state when it runs, so a typical chain
+        # only needs the user to fill these on Patch.
+        repo_path = (
+            str(node_data.get("repoPath") or "").strip() or state.get("repo_path") or ""
+        )
+        project = (
+            str(node_data.get("project") or "").strip() or state.get("pr_project") or ""
+        )
+        repo = (
+            str(node_data.get("repo") or "").strip() or state.get("pr_repo") or ""
+        )
+        target_branch = (
+            str(node_data.get("targetBranch") or "").strip()
+            or state.get("pr_target_branch")
+            or "main"
+        )
         try:
             result = await open_pr(
-                repo_path=state.get("repo_path") or "",
+                repo_path=repo_path,
                 issue_key=state.get("issue_key") or jira_detail.get("key") or "BUG",
                 summary=jira_detail.get("summary") or "",
-                target_branch=state.get("pr_target_branch") or "main",
-                project=state.get("pr_project") or "",
-                repo=state.get("pr_repo") or "",
+                target_branch=target_branch,
+                project=project,
+                repo=repo,
                 analysis=state.get("analysis"),
             )
         except PrConfigError as e:

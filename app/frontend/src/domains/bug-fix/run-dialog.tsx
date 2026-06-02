@@ -64,9 +64,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
         .filter(
           (n) =>
             n.type === 'bug-fix-stage-node' ||
-            n.type === 'jira-issue-input-node' ||
-            n.type === 'repo-path-input-node' ||
-            n.type === 'pr-config-node'
+            n.type === 'jira-issue-input-node'
         ).length,
     [reactFlow, open]
   );
@@ -143,9 +141,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
       .filter(
         (n) =>
           n.type === 'bug-fix-stage-node' ||
-          n.type === 'jira-issue-input-node' ||
-          n.type === 'repo-path-input-node' ||
-          n.type === 'pr-config-node'
+          n.type === 'jira-issue-input-node'
       )
       .map((n) => {
         const internal = getNodeInternalState(n.id);
