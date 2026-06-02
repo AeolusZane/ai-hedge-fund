@@ -93,6 +93,7 @@ async def run(
                     status=event.status,
                     timestamp=payload.get("timestamp"),
                     analysis=payload.get("analysis"),
+                    chunk=payload.get("chunk"),
                 )
             )
 

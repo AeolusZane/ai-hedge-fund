@@ -20,7 +20,12 @@ class StartEvent(BaseEvent):
     timestamp: Optional[str] = None
 
 class ProgressUpdateEvent(BaseEvent):
-    """Event containing an agent's progress update"""
+    """Event containing an agent's progress update.
+
+    `chunk` carries a partial LLM token batch when a streaming stage
+    (currently just Analyze) emits incremental output; the frontend
+    accumulates these per agent to render the response as it grows.
+    """
 
     type: Literal["progress"] = "progress"
     agent: str
@@ -28,6 +33,7 @@ class ProgressUpdateEvent(BaseEvent):
     status: str
     timestamp: Optional[str] = None
     analysis: Optional[str] = None
+    chunk: Optional[str] = None
 
 class ErrorEvent(BaseEvent):
     """Event indicating an error occurred"""

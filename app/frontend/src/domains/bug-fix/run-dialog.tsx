@@ -48,6 +48,10 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
   const [issueKey, setIssueKey] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState<ProgressItem[]>([]);
+  // Per-agent live token buffer. Each streaming stage (currently just
+  // Analyze) appends chunks here so the UI can show the model's response
+  // as it grows instead of staring at "Analyzing root cause" for 30s.
+  const [streamingByAgent, setStreamingByAgent] = useState<Record<string, string>>({});
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -86,6 +90,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
   const reset = useCallback(() => {
     setPhase('idle');
     setProgress([]);
+    setStreamingByAgent({});
     setResult(null);
     setError(null);
   }, []);
@@ -232,6 +237,19 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
   const handleEvent = (data: any) => {
     if (!data || typeof data !== 'object') return;
     if (data.type === 'progress') {
+      // Streaming token chunk — append to that agent's live buffer
+      // instead of polluting the status timeline with one row per token.
+      if (typeof data.chunk === 'string') {
+        const agent = data.agent ?? '__global__';
+        setStreamingByAgent((prev) => ({
+          ...prev,
+          [agent]: (prev[agent] ?? '') + data.chunk,
+        }));
+        if (data.agent) {
+          updateAgentNode(flowKey, data.agent, 'IN_PROGRESS');
+        }
+        return;
+      }
       setProgress((prev) => [
         ...prev,
         { agent: data.agent ?? null, status: data.status ?? '' },
@@ -348,6 +366,23 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
               )}
             </div>
           )}
+
+          {Object.entries(streamingByAgent).map(([agent, text]) => (
+            <div key={`stream-${agent}`} className="border rounded-md p-2 space-y-1 text-xs">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-[10px]">
+                  {agent}
+                </Badge>
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  streaming
+                </span>
+              </div>
+              <pre className="whitespace-pre-wrap font-mono text-[11px] bg-muted/30 rounded p-2 max-h-64 overflow-auto">
+                {text}
+                {running && <span className="animate-pulse">▍</span>}
+              </pre>
+            </div>
+          ))}
 
           {error && (
             <div className="border border-destructive/40 rounded-md p-2 text-xs text-destructive">

@@ -11,9 +11,15 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from src.llm.models import ModelProvider, get_model
+
+
+# Callback fired per-chunk while the LLM streams; the executor uses it to
+# push partial output to the SSE stream so the canvas can render the
+# response as it grows.
+OnToken = Callable[[str], Awaitable[None]]
 
 
 _DEFAULT_PROVIDER = os.getenv("BUG_FIX_ANALYZE_PROVIDER", "Anthropic")
@@ -82,8 +88,14 @@ async def analyze_jira_issue(
     model_name: Optional[str] = None,
     model_provider: Optional[str] = None,
     api_keys: Optional[dict[str, str]] = None,
+    on_token: Optional[OnToken] = None,
 ) -> dict[str, Any]:
     """Run the LLM analyze pass against the requested model.
+
+    If `on_token` is supplied, the response is streamed via `astream` and
+    each chunk's text is forwarded to the callback. The final parsed
+    dict is still returned at the end so the executor's existing return
+    contract is unchanged.
 
     Raises AnalyzeConfigError when the provider name is unknown or the
     underlying client can't be constructed (e.g. missing API key).
@@ -101,10 +113,24 @@ async def analyze_jira_issue(
         )
 
     prompt = _build_prompt(jira_detail)
-    # LangChain chat models accept a list of messages or a string. Use a
-    # string so we don't depend on which message-class flavour the
-    # provider supports.
-    response = await llm.ainvoke(prompt)
-    content = getattr(response, "content", response)
-    text = content if isinstance(content, str) else str(content)
-    return _parse_analysis(text)
+
+    if on_token is None:
+        response = await llm.ainvoke(prompt)
+        content = getattr(response, "content", response)
+        text = content if isinstance(content, str) else str(content)
+        return _parse_analysis(text)
+
+    # Streaming path: accumulate chunks while echoing each one to the caller.
+    parts: list[str] = []
+    async for chunk in llm.astream(prompt):
+        piece = getattr(chunk, "content", chunk)
+        token = piece if isinstance(piece, str) else str(piece)
+        if not token:
+            continue
+        parts.append(token)
+        try:
+            await on_token(token)
+        except Exception:
+            # A failing UI sink mustn't break the LLM read.
+            pass
+    return _parse_analysis("".join(parts))

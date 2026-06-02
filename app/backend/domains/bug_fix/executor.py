@@ -194,7 +194,7 @@ class BugFixExecutor(WorkflowExecutor):
         if node_type == "jira-issue-input-node":
             await self._do_fetch(node_id, state, done_payload, context)
         elif stage_name == "Analyze":
-            await self._do_analyze(node_data, state, done_payload)
+            await self._do_analyze(node_id, node_data, state, done_payload, context)
         elif stage_name == "Patch":
             await self._do_patch(node_data, state, done_payload)
         elif stage_name == "Open PR":
@@ -241,9 +241,11 @@ class BugFixExecutor(WorkflowExecutor):
 
     async def _do_analyze(
         self,
+        node_id: str,
         node_data: dict[str, Any],
         state: dict[str, Any],
         done_payload: dict[str, Any],
+        context: ExecutorContext,
     ) -> None:
         jira_detail = state.get("jira_detail")
         if not jira_detail:
@@ -252,12 +254,25 @@ class BugFixExecutor(WorkflowExecutor):
             )
             done_payload["error"] = state["analyze_error"]
             return
+
+        # Forward each streamed token to the SSE stream so the canvas
+        # can render the response as it grows.
+        async def on_token(token: str) -> None:
+            context.emit(
+                ProgressEvent(
+                    node_id=node_id,
+                    status="Analyzing root cause",
+                    payload={"chunk": token},
+                )
+            )
+
         try:
             analysis = await analyze_jira_issue(
                 jira_detail,
                 model_name=node_data.get("modelName"),
                 model_provider=node_data.get("modelProvider"),
                 api_keys=state.get("api_keys"),
+                on_token=on_token,
             )
         except AnalyzeConfigError as e:
             state["analyze_error"] = f"Analyze not configured: {e}"
