@@ -58,6 +58,8 @@ def _parse_repo_url(url: str) -> tuple[str, str]:
       - https://bitbucket.example.com/projects/PROJ/repos/my-repo
       - https://bitbucket.example.com/projects/PROJ/repos/my-repo/browse
       - /projects/PROJ/repos/my-repo
+      - git@bitbucket.example.com:PROJ/my-repo.git  (SSH)
+      - ssh://git@bitbucket.example.com/PROJ/my-repo.git
 
     Returns:
         Tuple of (project, repo). Empty strings if parsing fails.
@@ -65,6 +67,10 @@ def _parse_repo_url(url: str) -> tuple[str, str]:
     import re
     # Match /projects/<project>/repos/<repo> pattern
     match = re.search(r"/projects/([^/]+)/repos/([^/]+)", url)
+    if match:
+        return match.group(1), match.group(2)
+    # Match SSH format: git@host:PROJ/repo.git or ssh://git@host/PROJ/repo.git
+    match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?$", url)
     if match:
         return match.group(1), match.group(2)
     return "", ""
@@ -372,6 +378,18 @@ class BugFixExecutor(WorkflowExecutor):
             project = project or parsed_project
             repo = repo or parsed_repo
 
+        # Auto-detect project/repo from the local repo's git remote URL
+        repo_path = state.get("repo_path")
+        if (not project or not repo) and repo_path:
+            try:
+                remote_url = await self._get_remote_url(repo_path)
+                if remote_url:
+                    parsed_project, parsed_repo = _parse_repo_url(remote_url)
+                    project = project or parsed_project
+                    repo = repo or parsed_repo
+            except Exception:
+                pass  # Best-effort; user can still fill project/repo manually
+
         target_branch = (
             str(node_data.get("targetBranch") or "").strip()
             or state.get("pr_target_branch")
@@ -421,6 +439,22 @@ class BugFixExecutor(WorkflowExecutor):
             return
         state["open_pr"] = result
         done_payload.update({"branch": result.get("branch")})
+
+    async def _get_remote_url(self, repo_path: str) -> str:
+        """Read the origin remote URL from a local git repo."""
+        from pathlib import Path
+
+        repo = Path(repo_path).expanduser()
+        proc = await asyncio.create_subprocess_exec(
+            "git", "remote", "get-url", "origin",
+            cwd=str(repo),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        out_b, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        if proc.returncode != 0:
+            return ""
+        return out_b.decode(errors="replace").strip()
 
     async def _commit_and_push(
         self,
