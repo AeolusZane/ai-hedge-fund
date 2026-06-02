@@ -13,6 +13,7 @@ export type RunPhase = 'idle' | 'running' | 'complete' | 'error';
 
 let triggerFn: (() => void) | null = null;
 let stopFn: (() => void) | null = null;
+let dialogOpenerFn: (() => void) | null = null;
 
 let phase: RunPhase = 'idle';
 const phaseListeners = new Set<() => void>();
@@ -31,12 +32,25 @@ export function registerStopTrigger(fn: () => void): () => void {
   };
 }
 
+/** Registered by the always-mounted Run dialog; canvas nodes call
+ *  `openRunDialog()` to make the dialog visible. */
+export function registerDialogOpener(fn: () => void): () => void {
+  dialogOpenerFn = fn;
+  return () => {
+    if (dialogOpenerFn === fn) dialogOpenerFn = null;
+  };
+}
+
 export function requestRun(): void {
   triggerFn?.();
 }
 
 export function requestStop(): void {
   stopFn?.();
+}
+
+export function openRunDialog(): void {
+  dialogOpenerFn?.();
 }
 
 export function setRunPhase(next: RunPhase): void {

@@ -18,6 +18,7 @@ import { useReactFlow } from '@xyflow/react';
 import { Loader2, Play, Square } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  registerDialogOpener,
   registerRunTrigger,
   registerStopTrigger,
   setRunPhase,
@@ -109,18 +110,19 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     setRunPhase(phase);
   }, [phase]);
 
+  // Let canvas nodes pop the dialog open via the run-controller bus.
+  useEffect(() => registerDialogOpener(() => onOpenChange(true)), [onOpenChange]);
+
   // Expose start/stop to the module-level controller so a canvas node
   // (the Jira Issue Input's Play button) can request a run without
-  // opening the dialog first. We open it ourselves so the user still
-  // sees progress + result.
+  // opening the dialog first. The dialog stays closed during the run —
+  // canvas nodes light up in place and a node click reopens the dialog
+  // for users who want to see progress / results in detail.
   useEffect(() => {
     return registerRunTrigger(() => {
-      onOpenChange(true);
-      // Defer to next microtask so the dialog has a chance to mount
-      // its inputs (the issue-key effect depends on `open`).
       queueMicrotask(() => startRunRef.current?.());
     });
-  }, [onOpenChange]);
+  }, []);
 
   useEffect(() => {
     return registerStopTrigger(() => stopRunRef.current?.());

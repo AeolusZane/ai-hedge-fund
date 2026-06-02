@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { useFlowContext } from '@/contexts/flow-context';
 import { useNodeContext } from '@/contexts/node-context';
 import {
+  openRunDialog,
   requestRun,
   requestStop,
   useRunPhase,
@@ -43,6 +44,13 @@ export function JiraIssueInputNode({
   const isInProgress = status === 'IN_PROGRESS';
 
   return (
+    <div
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        openRunDialog();
+      }}
+      title="Double-click to view run progress / result"
+    >
     <NodeShell
       id={id}
       selected={selected}
@@ -103,5 +111,6 @@ export function JiraIssueInputNode({
         </div>
       </CardContent>
     </NodeShell>
+    </div>
   );
 }

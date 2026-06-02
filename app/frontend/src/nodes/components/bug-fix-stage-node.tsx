@@ -4,6 +4,7 @@ import { ModelSelector } from '@/components/ui/llm-selector';
 import { useFlowContext } from '@/contexts/flow-context';
 import { useNodeContext } from '@/contexts/node-context';
 import { getModels, type LanguageModel } from '@/data/models';
+import { openRunDialog } from '@/domains/bug-fix/run-controller';
 import { useNodeState } from '@/hooks/use-node-state';
 import { cn } from '@/lib/utils';
 import type { NodeStatus } from '@/nodes/utils';
@@ -59,6 +60,7 @@ export function BugFixStageNode({
   const [repo, setRepo] = useNodeState<string>(id, 'repo', '');
   const [targetBranch, setTargetBranch] = useNodeState<string>(id, 'targetBranch', 'main');
 
+
   useEffect(() => {
     if (!needsModel || models.length > 0) return;
     let cancelled = false;
@@ -102,6 +104,13 @@ export function BugFixStageNode({
   );
 
   return (
+    <div
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        openRunDialog();
+      }}
+      title="Double-click to view run progress / result"
+    >
     <NodeShell
       id={id}
       selected={selected}
@@ -147,5 +156,6 @@ export function BugFixStageNode({
         )}
       </CardContent>
     </NodeShell>
+    </div>
   );
 }
