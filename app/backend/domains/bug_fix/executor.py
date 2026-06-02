@@ -335,7 +335,10 @@ class BugFixExecutor(WorkflowExecutor):
         target_branch = str(node_data.get("targetBranch") or "").strip() or "main"
         state["pr_target_branch"] = target_branch
         try:
-            result = await run_patch(repo_path, jira_detail, state.get("analysis"))
+            result = await run_patch(
+                repo_path, jira_detail, state.get("analysis"),
+                target_branch=target_branch,
+            )
         except PatchConfigError as e:
             state["patch_error"] = str(e)
             done_payload["error"] = state["patch_error"]
@@ -374,9 +377,11 @@ class BugFixExecutor(WorkflowExecutor):
             or state.get("pr_target_branch")
             or "main"
         )
-        # from_branch defaults to fix/<issue-key>
+        # from_branch: prefer the branch Patch actually created, then node config, then default
+        patch_branch = (state.get("patch") or {}).get("branch")
         from_branch = (
-            str(node_data.get("fromBranch") or "").strip()
+            patch_branch
+            or str(node_data.get("fromBranch") or "").strip()
             or f"fix/{issue_key.lower()}"
         )
         try:

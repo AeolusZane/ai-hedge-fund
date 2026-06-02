@@ -202,11 +202,45 @@ async def run_patch(
     jira_detail: dict[str, Any],
     analysis: dict[str, Any] | None,
     *,
+    target_branch: str = "main",
     timeout_seconds: float = 600.0,
 ) -> dict[str, Any]:
-    """Drive Claude Code to fix the bug; return diff + touched files."""
+    """Drive Claude Code to fix the bug; return diff + touched files.
+
+    Creates a ``fix/<issue-key>`` branch from *target_branch* before
+    invoking Claude Code, so the working tree is clean and the diff is
+    scoped to the fix.
+    """
     repo = _validate_repo(repo_path)
     claude = _claude_binary()
+    issue_key = (jira_detail.get("key") or "bug").strip()
+    fix_branch = f"fix/{issue_key.lower()}"
+
+    # ── Branch setup ──────────────────────────────────────────────
+    # Fetch latest so we branch from an up-to-date base.
+    await _run("git", "fetch", "origin", cwd=repo, timeout=60)
+
+    # Stash or discard any local changes before switching branches.
+    await _run("git", "stash", "--include-untracked", cwd=repo, timeout=30)
+
+    # Delete the fix branch if it already exists locally (start fresh).
+    await _run("git", "branch", "-D", fix_branch, cwd=repo, timeout=10)
+
+    # Create the fix branch from the target branch.
+    rc, _, err = await _run(
+        "git", "checkout", "-b", fix_branch, f"origin/{target_branch}",
+        cwd=repo, timeout=30,
+    )
+    if rc != 0:
+        # Fallback: try local target branch if origin/ doesn't exist.
+        rc, _, err = await _run(
+            "git", "checkout", "-b", fix_branch, target_branch,
+            cwd=repo, timeout=30,
+        )
+        if rc != 0:
+            raise PatchConfigError(
+                f"Failed to create branch '{fix_branch}' from '{target_branch}': {err.strip()}"
+            )
 
     # Pre-flight: check if the Jira issue has ANY actionable text across
     # description + comments. If everything is image-only, skip the CLI call.
@@ -217,6 +251,7 @@ async def run_patch(
     if not has_text_in_description and not has_text_in_comments and not analysis:
         return {
             "status": "blocked",
+            "branch": fix_branch,
             "claude_output": "",
             "files_changed": [],
             "diff": "",
@@ -251,6 +286,7 @@ async def run_patch(
             output_text = stdout.strip()[:8000]
             return {
                 "status": "blocked",
+                "branch": fix_branch,
                 "claude_output": output_text,
                 "files_changed": [],
                 "diff": "",
@@ -292,6 +328,7 @@ async def run_patch(
 
     return {
         "status": status,
+        "branch": fix_branch,
         "claude_output": output_text,
         "files_changed": files_changed,
         "diff": diff_payload,
