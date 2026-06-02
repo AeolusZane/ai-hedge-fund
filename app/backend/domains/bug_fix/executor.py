@@ -58,22 +58,49 @@ def _parse_repo_url(url: str) -> tuple[str, str]:
       - https://bitbucket.example.com/projects/PROJ/repos/my-repo
       - https://bitbucket.example.com/projects/PROJ/repos/my-repo/browse
       - /projects/PROJ/repos/my-repo
-      - git@bitbucket.example.com:PROJ/my-repo.git  (SSH)
+      - git@bitbucket.example.com:PROJ/my-repo.git  (SSH SCP-style)
       - ssh://git@bitbucket.example.com/PROJ/my-repo.git
+      - ssh://git@bitbucket.example.com:7999/PROJ/my-repo.git  (with port)
+      - ssh://git@bitbucket.example.com:7999/~user/my-repo.git (fork)
+      - https://bitbucket.example.com/scm/PROJ/my-repo.git  (SCM HTTP)
 
     Returns:
         Tuple of (project, repo). Empty strings if parsing fails.
     """
     import re
-    # Match /projects/<project>/repos/<repo> pattern (HTTP/HTTPS)
+    # Match /projects/<project>/repos/<repo> pattern (HTTP/HTTPS browse URLs)
     match = re.search(r"/projects/([^/]+)/repos/([^/]+)", url)
     if match:
         return match.group(1), match.group(2)
-    # Match SSH format: git@host:PROJ/repo.git or ssh://git@host/PROJ/repo.git
-    match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?$", url)
+    # Match /scm/<project>/<repo>.git pattern (HTTP clone URLs)
+    match = re.search(r"/scm/([^/]+)/([^/]+?)(?:\.git)?$", url)
+    if match:
+        return match.group(1), match.group(2)
+    # Strip port number from SSH URLs: ssh://git@host:PORT/path → ssh://git@host/path
+    cleaned = re.sub(r"(://[^/:]+):\d+", r"\1", url)
+    # Match SSH SCP-style: git@host:PROJ/repo.git
+    match = re.search(r":([^/]+)/([^/]+?)(?:\.git)?$", cleaned)
+    if match:
+        proj = match.group(1)
+        # Skip if it looks like a port number rather than a project key
+        if not proj.isdigit():
+            return proj, match.group(2)
+    # Match path-based: .../PROJ/repo.git (after port stripping)
+    match = re.search(r"/([^/]+)/([^/]+?)(?:\.git)?$", cleaned)
     if match:
         return match.group(1), match.group(2)
     return "", ""
+
+
+def _is_fork_url(url: str) -> bool:
+    """Check if a remote URL points to a Bitbucket personal fork.
+
+    Bitbucket Server fork URLs contain ~username in the path, e.g.:
+      ssh://git@host:7999/~aeolus.zhang/nuclear-webui.git
+      https://host/scm/~aeolus.zhang/nuclear-webui.git
+    """
+    import re
+    return bool(re.search(r"[/:]~[^/]+/", url))
 
 
 def _topological_order(
@@ -378,15 +405,10 @@ class BugFixExecutor(WorkflowExecutor):
             project = project or parsed_project
             repo = repo or parsed_repo
 
-        # Fallback: read git remote URL from the local repo to auto-detect
-        # project/repo. This avoids requiring the user to manually fill in
-        # the Open PR node's repoUrl field when Patch already has repoPath.
-        #
-        # Remote priority: use the user-configured `prTargetRemote` (default
-        # "upstream") first. In a standard fork workflow, `origin` is the
-        # user's fork and `upstream` is the main repo — PRs should target
-        # the main repo. If the configured remote doesn't exist, fall back
-        # to `origin`, then the first available remote.
+        # Fallback: auto-detect project/repo from git remotes.
+        # Strategy: classify each remote URL as "fork" (contains ~username)
+        # or "main repo" (no ~). PR target = first non-fork remote.
+        # This works regardless of remote naming (upstream/up/fanruan/etc).
         if (not project or not repo) and state.get("repo_path"):
             try:
                 import subprocess
@@ -396,27 +418,24 @@ class BugFixExecutor(WorkflowExecutor):
                     stderr=subprocess.DEVNULL,
                     timeout=5,
                 ).decode().strip().splitlines()
-                # User-configured remote name (default: "upstream")
-                preferred_remote = str(node_data.get("prTargetRemote") or "upstream").strip()
-                # Pick the best remote: user preference > origin > first available
-                chosen = None
-                if preferred_remote in remotes:
-                    chosen = preferred_remote
-                elif "origin" in remotes:
-                    chosen = "origin"
-                elif remotes:
-                    chosen = remotes[0]
-                if chosen:
-                    remote_url = subprocess.check_output(
-                        ["git", "remote", "get-url", chosen],
-                        cwd=state["repo_path"],
-                        stderr=subprocess.DEVNULL,
-                        timeout=5,
-                    ).decode().strip()
-                    if remote_url:
-                        parsed_project, parsed_repo = _parse_repo_url(remote_url)
+                # Get URL for each remote and classify
+                for remote_name in remotes:
+                    try:
+                        remote_url = subprocess.check_output(
+                            ["git", "remote", "get-url", remote_name],
+                            cwd=state["repo_path"],
+                            stderr=subprocess.DEVNULL,
+                            timeout=5,
+                        ).decode().strip()
+                    except Exception:
+                        continue
+                    if not remote_url or _is_fork_url(remote_url):
+                        continue  # skip forks — we want the main repo
+                    parsed_project, parsed_repo = _parse_repo_url(remote_url)
+                    if parsed_project and parsed_repo:
                         project = project or parsed_project
                         repo = repo or parsed_repo
+                        break
             except Exception:
                 pass  # git not available or not a git repo — fall through
 
@@ -521,14 +540,21 @@ class BugFixExecutor(WorkflowExecutor):
             if rc != 0:
                 raise RuntimeError(f"git commit failed: {err.strip()}")
 
-        # Auto-detect push remote if the configured one doesn't exist.
-        # Priority: configured remote > only remote > "origin"
+        # Auto-detect push remote: prefer the fork (URL with ~username).
+        # If the configured remote doesn't exist, scan all remotes for a fork.
         rc, remotes_out, _ = await _git("remote")
         if rc == 0:
             remotes = [r.strip() for r in remotes_out.strip().splitlines() if r.strip()]
             if push_remote not in remotes:
-                if len(remotes) == 1:
-                    push_remote = remotes[0]
+                # Try to find a fork remote (URL contains ~)
+                fork_remote = None
+                for r in remotes:
+                    rc2, url_out, _ = await _git("remote", "get-url", r)
+                    if rc2 == 0 and _is_fork_url(url_out):
+                        fork_remote = r
+                        break
+                if fork_remote:
+                    push_remote = fork_remote
                 elif "origin" in remotes:
                     push_remote = "origin"
                 elif remotes:
