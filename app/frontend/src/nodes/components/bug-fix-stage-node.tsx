@@ -6,13 +6,14 @@ import { useFlowContext } from '@/contexts/flow-context';
 import { useNodeContext } from '@/contexts/node-context';
 import { getModels, type LanguageModel } from '@/data/models';
 
+import { NodeOutputDialog } from '@/domains/bug-fix/node-output-dialog';
 import { useNodeOutput } from '@/domains/bug-fix/node-output-store';
 import { openStepDetail } from '@/domains/bug-fix/step-detail-context';
 import { useNodeState } from '@/hooks/use-node-state';
 import { cn } from '@/lib/utils';
 import type { NodeRunInfo, NodeStatus } from '@/nodes/utils';
 import { type NodeProps } from '@xyflow/react';
-import { Wrench } from 'lucide-react';
+import { Eye, Wrench } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { BugFixStageNode } from '../types';
 import { getStatusColor } from '../utils';
@@ -133,7 +134,8 @@ export function BugFixStageNode({
   // PR config (Open PR only)
   const [repoUrl, setRepoUrl] = useNodeState<string>(id, 'repoUrl', '');
 
-
+  // View Output dialog
+  const [outputOpen, setOutputOpen] = useState(false);
 
   useEffect(() => {
     if (!needsModel || models.length > 0) return;
@@ -228,6 +230,26 @@ export function BugFixStageNode({
             {field('Repo URL', repoUrl, setRepoUrl, 'https://bitbucket.example.com/projects/AI/repos/corevo')}
           </>
         )}
+
+        {/* View Output button — opens the step detail panel */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full h-6 gap-1 text-[10px]"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            openStepDetail(id, data.name);
+          }}
+        >
+          <Eye className="h-3 w-3" /> View output
+        </Button>
+        <NodeOutputDialog
+          open={outputOpen}
+          onOpenChange={setOutputOpen}
+          agentId={id}
+          stageName={data.name}
+        />
       </CardContent>
     </NodeShell>
   );
