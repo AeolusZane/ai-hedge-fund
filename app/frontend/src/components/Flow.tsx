@@ -21,6 +21,7 @@ import { useFlowContext } from '@/contexts/flow-context';
 import { useEnhancedFlowActions } from '@/hooks/use-enhanced-flow-actions';
 import { useFlowHistory } from '@/hooks/use-flow-history';
 import { useFlowKeyboardShortcuts, useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
+import { addStateChangeListener } from '@/hooks/use-node-state';
 import { useToastManager } from '@/hooks/use-toast-manager';
 import { AppNode } from '@/nodes/types';
 import { edgeTypes } from '../edges';
@@ -87,6 +88,16 @@ export function Flow({ className = '' }: FlowProps) {
       }
     }, 1000); // 1 second debounce
   }, [currentFlowId, saveCurrentFlowWithCompleteState]);
+
+  // Typing into a node's input field (Jira key, repo path, model picker, …)
+  // mutates the FlowStateManager backing `useNodeState`, but React Flow's
+  // own node-change events don't fire. Subscribe to FlowStateManager so
+  // those edits trigger the same debounced autoSave as structural changes.
+  useEffect(() => {
+    if (!isInitialized || !currentFlowId) return;
+    const flowIdAtSubscribe = currentFlowId;
+    return addStateChangeListener(() => autoSave(flowIdAtSubscribe));
+  }, [isInitialized, currentFlowId, autoSave]);
 
   // Enhanced onNodesChange handler with auto-save for specific change types
   const handleNodesChange = useCallback((changes: NodeChange<AppNode>[]) => {
