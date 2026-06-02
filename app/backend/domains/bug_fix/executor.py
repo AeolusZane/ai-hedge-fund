@@ -436,6 +436,7 @@ class BugFixExecutor(WorkflowExecutor):
         # ── Commit + push the fix branch before creating the PR ──
         repo_path = state.get("repo_path")
         patch_result = state.get("patch") or {}
+        push_remote = str(node_data.get("pushRemote") or "origin").strip()
         if repo_path and patch_result.get("status") == "applied":
             try:
                 await self._commit_and_push(
@@ -443,6 +444,7 @@ class BugFixExecutor(WorkflowExecutor):
                     branch=from_branch,
                     issue_key=issue_key,
                     summary=jira_detail.get("summary") or "",
+                    push_remote=push_remote,
                 )
             except Exception as e:
                 state["open_pr_error"] = f"Commit/push failed: {e}"
@@ -477,8 +479,13 @@ class BugFixExecutor(WorkflowExecutor):
         branch: str,
         issue_key: str,
         summary: str,
+        push_remote: str = "origin",
     ) -> None:
-        """Stage all changes, commit, and push the fix branch to origin."""
+        """Stage all changes, commit, and push the fix branch.
+
+        push_remote defaults to "origin" but can be overridden by the
+        Open PR node's configuration.
+        """
         import os
         from pathlib import Path
 
@@ -514,13 +521,26 @@ class BugFixExecutor(WorkflowExecutor):
             if rc != 0:
                 raise RuntimeError(f"git commit failed: {err.strip()}")
 
-        # Push the branch to origin
-        rc, _, err = await _git("push", "-u", "origin", branch)
+        # Auto-detect push remote if the configured one doesn't exist.
+        # Priority: configured remote > only remote > "origin"
+        rc, remotes_out, _ = await _git("remote")
+        if rc == 0:
+            remotes = [r.strip() for r in remotes_out.strip().splitlines() if r.strip()]
+            if push_remote not in remotes:
+                if len(remotes) == 1:
+                    push_remote = remotes[0]
+                elif "origin" in remotes:
+                    push_remote = "origin"
+                elif remotes:
+                    push_remote = remotes[0]
+
+        # Push the branch to the configured push remote
+        rc, _, err = await _git("push", "-u", push_remote, branch)
         if rc != 0:
             # Try force push if the branch already exists remotely
-            rc, _, err = await _git("push", "-u", "origin", branch, "--force-with-lease")
+            rc, _, err = await _git("push", "-u", push_remote, branch, "--force-with-lease")
             if rc != 0:
-                raise RuntimeError(f"git push failed: {err.strip()}")
+                raise RuntimeError(f"git push to {push_remote} failed: {err.strip()}")
 
     def _build_result(
         self,

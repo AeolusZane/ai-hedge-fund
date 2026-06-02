@@ -140,6 +140,7 @@ export function BugFixStageNode({
   // PR config (Open PR only)
   const [repoUrl, setRepoUrl] = useNodeState<string>(id, 'repoUrl', '');
   const [prTargetRemote, setPrTargetRemote] = useNodeState<string>(id, 'prTargetRemote', 'upstream');
+  const [pushRemote, setPushRemote] = useNodeState<string>(id, 'pushRemote', 'origin');
 
   // View Output dialog
   const [outputOpen, setOutputOpen] = useState(false);
@@ -234,6 +235,7 @@ export function BugFixStageNode({
         {needsTargetBranch && field('Target branch', targetBranch, setTargetBranch, 'main')}
         {needsPrConfig && (
           <>
+            {field('Push remote', pushRemote, setPushRemote, 'origin')}
             {field('PR target remote', prTargetRemote, setPrTargetRemote, 'upstream')}
             {field('Repo URL (optional)', repoUrl, setRepoUrl, 'auto-detected from remote')}
           </>
