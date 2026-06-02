@@ -133,6 +133,26 @@ issue. No auto-merge.
 - Source: branch made in Patch. Target: configurable, default `main`.
 - Result: `pr_url`, `pr_id`.
 
+## Anthropic-compatible providers
+
+Both the Patch stage (`claude` CLI subprocess) and the Analyze stage
+(when an `Anthropic` model is selected) honour `ANTHROPIC_BASE_URL`.
+Setting it to e.g. `https://api.deepseek.com/anthropic` routes every
+Anthropic-shaped call through that provider; the `ANTHROPIC_API_KEY`
+should then hold the provider's key. No code changes are needed — the
+override works because:
+
+- `patch_agent._run(...)` calls `asyncio.create_subprocess_exec` without
+  an `env=` override, so `claude` inherits the parent's env (which has
+  the .env values via `load_dotenv()` in `app/backend/main.py`).
+- `src/llm/models.py::get_model` constructs `ChatAnthropic` without an
+  explicit `base_url` / `anthropic_api_url`, so the underlying
+  `anthropic.Anthropic` client reads `ANTHROPIC_BASE_URL` from env.
+
+If we ever decide to support per-stage base URLs, the place to plumb
+them in is `node_data` (consumed by `_do_patch` / `_do_analyze`), not
+a global flag.
+
 ## Cross-cutting concerns
 
 - **Cancellation** — `context.is_cancelled()` is checked before each
