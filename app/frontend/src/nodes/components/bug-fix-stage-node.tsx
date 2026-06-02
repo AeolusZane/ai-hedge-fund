@@ -103,9 +103,11 @@ export function BugFixStageNode({
   const runInfo: NodeRunInfo | undefined = useMemo(() => {
     if (status === 'IDLE') return undefined;
     const startedAt = progressItems[0]?.ts;
-    const completedAt = status === 'COMPLETE' || status === 'ERROR'
-      ? progressItems[progressItems.length - 1]?.ts
-      : undefined;
+    let completedAt: number | undefined;
+    if (status === 'COMPLETE' || status === 'ERROR') {
+      // Use last progress item timestamp, or fall back to now if no progress items
+      completedAt = progressItems[progressItems.length - 1]?.ts ?? Date.now();
+    }
     return {
       status,
       progress: progressPercent,
