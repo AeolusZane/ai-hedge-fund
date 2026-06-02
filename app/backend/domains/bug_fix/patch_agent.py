@@ -85,7 +85,22 @@ def _build_prompt(jira: dict[str, Any], analysis: dict[str, Any] | None) -> str:
         [
             "Make the smallest code change that fixes the bug. Edit files in this repo as needed.",
             "Do NOT commit, push, or run git commands — another stage handles that.",
-            "When done, briefly summarise what you changed and why.",
+            "Do NOT ask the user any questions and do NOT wait for confirmation.",
+            "If details are missing, make the safest minimal fix based on the available evidence.",
+            "If you cannot safely make a code change, do not stop to ask questions.",
+            "Instead, make no code changes and end with a short blocker report.",
+            "",
+            "At the end, output exactly one of these formats:",
+            "",
+            "1) If you changed code:",
+            "PATCH_APPLIED",
+            "summary: <what changed and why>",
+            "files: <comma-separated files>",
+            "",
+            "2) If you could not safely change code:",
+            "PATCH_BLOCKED",
+            "reason: <why blocked>",
+            "next_step: <specific next investigation step>",
         ]
     )
     return "\n".join(parts)
@@ -106,6 +121,8 @@ async def run_patch(
     rc, stdout, stderr = await _run(
         claude,
         "--print",
+        "--max-turns",
+        "8",
         "--permission-mode",
         "acceptEdits",
         prompt,
@@ -117,6 +134,20 @@ async def run_patch(
         # rate-limit errors.
         message = (stderr.strip() or stdout.strip() or "(no output)")[:2000]
         raise PatchConfigError(f"claude exited {rc}: {message}")
+
+    # Parse the structured exit protocol from the prompt.
+    output_text = stdout.strip()[:8000]
+    status = "applied"
+    blocker_reason = ""
+    blocker_next_step = ""
+    if "PATCH_BLOCKED" in output_text:
+        status = "blocked"
+        for line in output_text.splitlines():
+            stripped = line.strip()
+            if stripped.lower().startswith("reason:"):
+                blocker_reason = stripped.split(":", 1)[1].strip()
+            elif stripped.lower().startswith("next_step:"):
+                blocker_next_step = stripped.split(":", 1)[1].strip()
 
     # Capture what changed. `git status --porcelain=v1` lists every file
     # whose state moved; `git diff` (working tree vs HEAD) gives the
@@ -132,8 +163,11 @@ async def run_patch(
     diff_payload = diff_out[:DIFF_LIMIT] if diff_truncated else diff_out
 
     return {
-        "claude_output": stdout.strip()[:8000],
+        "status": status,
+        "claude_output": output_text,
         "files_changed": files_changed,
         "diff": diff_payload,
         "diff_truncated": diff_truncated,
+        "blocker_reason": blocker_reason,
+        "blocker_next_step": blocker_next_step,
     }

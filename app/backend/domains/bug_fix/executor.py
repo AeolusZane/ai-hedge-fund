@@ -317,6 +317,10 @@ class BugFixExecutor(WorkflowExecutor):
             return
         state["patch"] = result
         done_payload["files_changed"] = result.get("files_changed", [])
+        done_payload["patch_status"] = result.get("status", "applied")
+        if result.get("status") == "blocked":
+            done_payload["blocker_reason"] = result.get("blocker_reason", "")
+            done_payload["blocker_next_step"] = result.get("blocker_next_step", "")
 
     async def _do_open_pr(
         self,

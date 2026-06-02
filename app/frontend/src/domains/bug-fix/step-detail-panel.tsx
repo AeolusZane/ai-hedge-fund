@@ -164,8 +164,25 @@ export function StepDetailPanel() {
                 </div>
               )}
 
+              {/* Patch blocked (Patch stage) */}
+              {resultSlice.patch_status === 'blocked' && (
+                <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-md p-3">
+                  <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1">Patch Blocked</div>
+                  {resultSlice.blocker_reason && (
+                    <div className="text-xs text-muted-foreground mb-1">
+                      <span className="font-semibold">Reason:</span> {resultSlice.blocker_reason}
+                    </div>
+                  )}
+                  {resultSlice.blocker_next_step && (
+                    <div className="text-xs text-muted-foreground">
+                      <span className="font-semibold">Next step:</span> {resultSlice.blocker_next_step}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Patch files (Patch stage) */}
-              {resultSlice.patch_files && Array.isArray(resultSlice.patch_files) && (
+              {resultSlice.patch_status !== 'blocked' && resultSlice.patch_files && Array.isArray(resultSlice.patch_files) && (
                 <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-md p-3">
                   <div className="text-xs font-semibold text-green-600 dark:text-green-400 mb-1">Patched Files</div>
                   <div className="text-xs text-muted-foreground space-y-0.5">
@@ -188,7 +205,7 @@ export function StepDetailPanel() {
               )}
 
               {/* Generic fallback: show all keys */}
-              {!resultSlice.error && !resultSlice.root_cause && !resultSlice.patch_files && !resultSlice.pr_url && (
+              {!resultSlice.error && !resultSlice.root_cause && !resultSlice.patch_files && !resultSlice.pr_url && resultSlice.patch_status !== 'blocked' && (
                 <div className="bg-muted/30 rounded-md p-3 text-xs">
                   {Object.entries(resultSlice).map(([key, val]) => (
                     <div key={key} className="mb-1">
