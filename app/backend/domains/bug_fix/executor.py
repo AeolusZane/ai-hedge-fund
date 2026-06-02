@@ -51,6 +51,25 @@ def _stage_label(name: str) -> str:
     }.get(name, name)
 
 
+def _parse_repo_url(url: str) -> tuple[str, str]:
+    """Extract project key and repo slug from a Bitbucket repo URL.
+
+    Supports formats like:
+      - https://bitbucket.example.com/projects/PROJ/repos/my-repo
+      - https://bitbucket.example.com/projects/PROJ/repos/my-repo/browse
+      - /projects/PROJ/repos/my-repo
+
+    Returns:
+        Tuple of (project, repo). Empty strings if parsing fails.
+    """
+    import re
+    # Match /projects/<project>/repos/<repo> pattern
+    match = re.search(r"/projects/([^/]+)/repos/([^/]+)", url)
+    if match:
+        return match.group(1), match.group(2)
+    return "", ""
+
+
 def _topological_order(
     nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -336,31 +355,35 @@ class BugFixExecutor(WorkflowExecutor):
         done_payload: dict[str, Any],
     ) -> None:
         jira_detail = state.get("jira_detail") or {}
-        # Per-node fields override anything inherited from state. Patch
-        # writes repo_path into state when it runs, so a typical chain
-        # only needs the user to fill these on Patch.
-        repo_path = (
-            str(node_data.get("repoPath") or "").strip() or state.get("repo_path") or ""
-        )
-        project = (
-            str(node_data.get("project") or "").strip() or state.get("pr_project") or ""
-        )
-        repo = (
-            str(node_data.get("repo") or "").strip() or state.get("pr_repo") or ""
-        )
+        issue_key = state.get("issue_key") or jira_detail.get("key") or "BUG"
+
+        # Parse repoUrl to extract project/repo if provided
+        project = str(node_data.get("project") or "").strip() or state.get("pr_project") or ""
+        repo = str(node_data.get("repo") or "").strip() or state.get("pr_repo") or ""
+        repo_url = str(node_data.get("repoUrl") or "").strip()
+        if repo_url and (not project or not repo):
+            parsed_project, parsed_repo = _parse_repo_url(repo_url)
+            project = project or parsed_project
+            repo = repo or parsed_repo
+
         target_branch = (
             str(node_data.get("targetBranch") or "").strip()
             or state.get("pr_target_branch")
             or "main"
         )
+        # from_branch defaults to fix/<issue-key>
+        from_branch = (
+            str(node_data.get("fromBranch") or "").strip()
+            or f"fix/{issue_key.lower()}"
+        )
         try:
             result = await open_pr(
-                repo_path=repo_path,
-                issue_key=state.get("issue_key") or jira_detail.get("key") or "BUG",
+                issue_key=issue_key,
                 summary=jira_detail.get("summary") or "",
-                target_branch=target_branch,
                 project=project,
                 repo=repo,
+                from_branch=from_branch,
+                to_branch=target_branch,
                 analysis=state.get("analysis"),
             )
         except PrConfigError as e:

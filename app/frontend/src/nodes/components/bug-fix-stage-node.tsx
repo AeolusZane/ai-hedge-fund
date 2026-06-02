@@ -19,7 +19,7 @@ import { getStatusColor } from '../utils';
 import { NodeShell } from './node-shell';
 
 const STAGES_THAT_USE_AN_LLM = new Set(['Analyze']);
-const STAGES_THAT_NEED_REPO_PATH = new Set(['Patch', 'Open PR']);
+const STAGES_THAT_NEED_REPO_PATH = new Set(['Patch']);
 const STAGES_THAT_NEED_PR_CONFIG = new Set(['Open PR']);
 
 /**
@@ -122,12 +122,12 @@ export function BugFixStageNode({
   const [modelName, setModelName] = useNodeState<string>(id, 'modelName', '');
   const [, setModelProvider] = useNodeState<string>(id, 'modelProvider', '');
 
-  // Repo path (Patch + Open PR)
+  // Repo path (Patch only)
   const [repoPath, setRepoPath] = useNodeState<string>(id, 'repoPath', '');
 
-  // PR target (Open PR only)
-  const [project, setProject] = useNodeState<string>(id, 'project', '');
-  const [repo, setRepo] = useNodeState<string>(id, 'repo', '');
+  // PR config (Open PR only)
+  const [repoUrl, setRepoUrl] = useNodeState<string>(id, 'repoUrl', '');
+  const [fromBranch, setFromBranch] = useNodeState<string>(id, 'fromBranch', '');
   const [targetBranch, setTargetBranch] = useNodeState<string>(id, 'targetBranch', 'main');
 
   const [outputOpen, setOutputOpen] = useState(false);
@@ -238,8 +238,8 @@ export function BugFixStageNode({
         {needsRepoPath && field('Repo path', repoPath, setRepoPath, '/absolute/path/to/repo')}
         {needsPrConfig && (
           <>
-            {field('Project key', project, setProject, 'BI')}
-            {field('Repo slug', repo, setRepo, 'finebi-mobile')}
+            {field('Repo URL', repoUrl, setRepoUrl, 'https://bitbucket.example.com/projects/AI/repos/corevo')}
+            {field('From branch', fromBranch, setFromBranch, 'fix/bug-123 (auto: fix/<issue-key>)')}
             {field('Target branch', targetBranch, setTargetBranch, 'main')}
           </>
         )}

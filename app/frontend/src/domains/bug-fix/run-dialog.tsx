@@ -182,7 +182,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
         const internal = getNodeInternalState(n.id);
         if (!internal) return n;
         // Fold the per-node persisted state into node.data so the
-        // backend can read modelName, repoPath, project / repo /
+        // backend can read modelName, repoPath, repoUrl, fromBranch /
         // targetBranch, etc. directly.
         return {
           ...n,
@@ -191,8 +191,8 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
             ...(internal.modelName ? { modelName: internal.modelName } : {}),
             ...(internal.modelProvider ? { modelProvider: internal.modelProvider } : {}),
             ...(internal.repoPath ? { repoPath: internal.repoPath } : {}),
-            ...(internal.project ? { project: internal.project } : {}),
-            ...(internal.repo ? { repo: internal.repo } : {}),
+            ...(internal.repoUrl ? { repoUrl: internal.repoUrl } : {}),
+            ...(internal.fromBranch ? { fromBranch: internal.fromBranch } : {}),
             ...(internal.targetBranch ? { targetBranch: internal.targetBranch } : {}),
           },
         };
