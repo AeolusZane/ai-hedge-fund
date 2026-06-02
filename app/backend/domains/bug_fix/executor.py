@@ -331,6 +331,9 @@ class BugFixExecutor(WorkflowExecutor):
             return
         # Cache for downstream stages (Open PR needs the same path).
         state["repo_path"] = repo_path
+        # Cache target_branch for Open PR
+        target_branch = str(node_data.get("targetBranch") or "").strip() or "main"
+        state["pr_target_branch"] = target_branch
         try:
             result = await run_patch(repo_path, jira_detail, state.get("analysis"))
         except PatchConfigError as e:

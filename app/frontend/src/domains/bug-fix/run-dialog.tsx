@@ -182,8 +182,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
         const internal = getNodeInternalState(n.id);
         if (!internal) return n;
         // Fold the per-node persisted state into node.data so the
-        // backend can read modelName, repoPath, repoUrl, fromBranch /
-        // targetBranch, etc. directly.
+        // backend can read modelName, repoPath, repoUrl, targetBranch, etc. directly.
         return {
           ...n,
           data: {
@@ -192,7 +191,6 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
             ...(internal.modelProvider ? { modelProvider: internal.modelProvider } : {}),
             ...(internal.repoPath ? { repoPath: internal.repoPath } : {}),
             ...(internal.repoUrl ? { repoUrl: internal.repoUrl } : {}),
-            ...(internal.fromBranch ? { fromBranch: internal.fromBranch } : {}),
             ...(internal.targetBranch ? { targetBranch: internal.targetBranch } : {}),
           },
         };
@@ -212,6 +210,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          flow_id: currentFlowId ?? undefined,
           payload: {
             jira_issue: trimmed,
             stage_delay_seconds: 0.1,
@@ -393,20 +392,24 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
           {progress.length > 0 && (
             <div className="border rounded-md p-2 max-h-48 overflow-y-auto text-xs font-mono">
               {progress.map((p, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    'flex items-center gap-2 py-0.5',
-                    p.status === 'Done' && 'text-muted-foreground'
-                  )}
-                >
-                  {p.agent && (
-                    <Badge variant="outline" className="text-[10px]">
-                      {p.agent}
-                    </Badge>
-                  )}
-                  <span>{p.status}</span>
-                </div>
+                  <div
+                    key={i}
+                    className={cn(
+                      'flex items-center gap-2 py-0.5',
+                      p.status === 'Done' && 'text-muted-foreground',
+                      p.status === 'Error' && 'text-red-500 dark:text-red-400'
+                    )}
+                  >
+                    {p.agent && (
+                      <Badge variant="outline" className={cn(
+                        'text-[10px]',
+                        p.status === 'Error' && 'border-red-500 text-red-500'
+                      )}>
+                        {p.agent}
+                      </Badge>
+                    )}
+                    <span>{p.status}</span>
+                  </div>
               ))}
               {running && (
                 <div className="flex items-center gap-2 py-0.5 text-muted-foreground">

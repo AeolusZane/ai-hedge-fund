@@ -132,9 +132,26 @@ async def run(
                 return
 
             if flow_run:
-                flow_run_repo.update_flow_run(
-                    flow_run.id, status=FlowRunStatus.COMPLETE, results=final_payload
+                # Check if any stage recorded an error
+                has_error = any(
+                    key.endswith("_error") and final_payload.get(key)
+                    for key in final_payload
                 )
+                if has_error:
+                    error_messages = [
+                        f"{k}: {v}" for k, v in final_payload.items()
+                        if k.endswith("_error") and v
+                    ]
+                    flow_run_repo.update_flow_run(
+                        flow_run.id,
+                        status=FlowRunStatus.ERROR,
+                        error_message="; ".join(error_messages),
+                        results=final_payload,
+                    )
+                else:
+                    flow_run_repo.update_flow_run(
+                        flow_run.id, status=FlowRunStatus.COMPLETE, results=final_payload
+                    )
             yield CompleteEvent(data=final_payload).to_sse()
 
         except asyncio.CancelledError:

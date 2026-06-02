@@ -20,6 +20,7 @@ import { NodeShell } from './node-shell';
 
 const STAGES_THAT_USE_AN_LLM = new Set(['Analyze']);
 const STAGES_THAT_NEED_REPO_PATH = new Set(['Patch']);
+const STAGES_THAT_NEED_TARGET_BRANCH = new Set(['Patch']);
 const STAGES_THAT_NEED_PR_CONFIG = new Set(['Open PR']);
 
 /**
@@ -115,6 +116,7 @@ export function BugFixStageNode({
 
   const needsModel = STAGES_THAT_USE_AN_LLM.has(data.name);
   const needsRepoPath = STAGES_THAT_NEED_REPO_PATH.has(data.name);
+  const needsTargetBranch = STAGES_THAT_NEED_TARGET_BRANCH.has(data.name);
   const needsPrConfig = STAGES_THAT_NEED_PR_CONFIG.has(data.name);
 
   // Model selector state (Analyze)
@@ -125,10 +127,11 @@ export function BugFixStageNode({
   // Repo path (Patch only)
   const [repoPath, setRepoPath] = useNodeState<string>(id, 'repoPath', '');
 
+  // Target branch (Patch only)
+  const [targetBranch, setTargetBranch] = useNodeState<string>(id, 'targetBranch', 'main');
+
   // PR config (Open PR only)
   const [repoUrl, setRepoUrl] = useNodeState<string>(id, 'repoUrl', '');
-  const [fromBranch, setFromBranch] = useNodeState<string>(id, 'fromBranch', '');
-  const [targetBranch, setTargetBranch] = useNodeState<string>(id, 'targetBranch', 'main');
 
   const [outputOpen, setOutputOpen] = useState(false);
 
@@ -236,11 +239,10 @@ export function BugFixStageNode({
           </div>
         )}
         {needsRepoPath && field('Repo path', repoPath, setRepoPath, '/absolute/path/to/repo')}
+        {needsTargetBranch && field('Target branch', targetBranch, setTargetBranch, 'main')}
         {needsPrConfig && (
           <>
             {field('Repo URL', repoUrl, setRepoUrl, 'https://bitbucket.example.com/projects/AI/repos/corevo')}
-            {field('From branch', fromBranch, setFromBranch, 'fix/bug-123 (auto: fix/<issue-key>)')}
-            {field('Target branch', targetBranch, setTargetBranch, 'main')}
           </>
         )}
       </CardContent>
