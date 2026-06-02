@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { ReactNode, useEffect, useState } from 'react';
 import { ComponentActions } from './component-actions';
 import { ComponentList } from './component-list';
+import { TemplateMenu } from './template-menu';
 
 interface RightSidebarProps {
   children?: ReactNode;
@@ -84,7 +85,9 @@ export function RightSidebar({
       }}
     >
       <ComponentActions />
-      
+
+      <TemplateMenu />
+
       <ComponentList
         componentGroups={componentGroups}
         searchQuery={searchQuery}

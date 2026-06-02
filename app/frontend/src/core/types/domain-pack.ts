@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react';
 import type { ComponentGroup } from './component-group';
+import type { WorkflowTemplate } from './workflow-template';
 
 /**
  * Static description of a workflow domain that the platform can host.
@@ -47,6 +48,13 @@ export interface DomainPack {
    * leave this undefined.
    */
   RunDialog?: ComponentType<DomainRunDialogProps>;
+
+  /**
+   * Pre-wired workflow templates the user can drop onto the canvas via
+   * the "Templates" dropdown in the right palette. Empty list = no
+   * template menu shown.
+   */
+  templates?: WorkflowTemplate[];
 }
 
 export interface DomainNodeType {

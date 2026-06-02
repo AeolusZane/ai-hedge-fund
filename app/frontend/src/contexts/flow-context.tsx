@@ -1,14 +1,16 @@
 import { useDomain } from '@/core/contexts/domain-context';
+import type { WorkflowTemplate } from '@/core/types/workflow-template';
 import { getNodeTypeDefinition } from '@/data/node-mappings';
 import { flowConnectionManager } from '@/hooks/use-flow-connection';
 import { clearAllNodeStates, getAllNodeStates, setNodeInternalState, setCurrentFlowId as setNodeStateFlowId } from '@/hooks/use-node-state';
 import { flowService } from '@/services/flow-service';
 import { Flow } from '@/types/flow';
-import { ReactFlowInstance, useReactFlow, XYPosition } from '@xyflow/react';
+import { MarkerType, ReactFlowInstance, useReactFlow, XYPosition } from '@xyflow/react';
 import { createContext, ReactNode, useCallback, useContext, useState } from 'react';
 
 interface FlowContextType {
   addComponentToFlow: (componentName: string) => Promise<void>;
+  addTemplateToFlow: (template: WorkflowTemplate) => Promise<void>;
   saveCurrentFlow: (name?: string, description?: string) => Promise<Flow | null>;
   loadFlow: (flow: Flow) => Promise<void>;
   createNewFlow: () => Promise<void>;
@@ -240,8 +242,57 @@ export function FlowProvider({ children }: FlowProviderProps) {
     await addSingleNodeToFlow(componentName);
   }, [addSingleNodeToFlow]);
 
+  // Drop a multi-node template onto the canvas. Positions are relative
+  // to the viewport centre; edges connect template-node keys to the
+  // actual React Flow ids we just generated.
+  const addTemplateToFlow = useCallback(async (template: WorkflowTemplate) => {
+    if (!template.nodes.length) return;
+    const basePosition = getViewportPosition(false);
+
+    const keyToId = new Map<string, string>();
+    const created: any[] = [];
+    for (const tn of template.nodes) {
+      const def = await getNodeTypeDefinition(tn.componentName);
+      if (!def) {
+        console.warn(`No node type definition for "${tn.componentName}" in template "${template.id}"`);
+        continue;
+      }
+      const node = def.createNode({
+        x: basePosition.x + tn.offsetX,
+        y: basePosition.y + tn.offsetY,
+      });
+      keyToId.set(tn.key, node.id);
+      if (tn.state) setNodeInternalState(node.id, tn.state);
+      created.push(node);
+    }
+
+    const newEdges = template.edges
+      .map((e) => {
+        const source = keyToId.get(e.source);
+        const target = keyToId.get(e.target);
+        if (!source || !target) return null;
+        return {
+          id: `${source}-${target}`,
+          source,
+          target,
+          markerEnd: { type: MarkerType.ArrowClosed },
+        };
+      })
+      .filter((e): e is NonNullable<typeof e> => e !== null);
+
+    reactFlowInstance.setNodes((nodes) => [...nodes, ...created]);
+    reactFlowInstance.setEdges((edges) => [...edges, ...newEdges]);
+    markAsUnsaved();
+
+    // Pan + zoom so the template is on-screen.
+    setTimeout(() => {
+      reactFlowInstance.fitView({ padding: 0.2, duration: 500 });
+    }, 100);
+  }, [reactFlowInstance, getViewportPosition, markAsUnsaved]);
+
   const value = {
     addComponentToFlow,
+    addTemplateToFlow,
     saveCurrentFlow,
     loadFlow,
     createNewFlow,
