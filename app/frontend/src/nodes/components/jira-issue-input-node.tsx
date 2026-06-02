@@ -13,7 +13,7 @@ import { useNodeState } from '@/hooks/use-node-state';
 import { cn } from '@/lib/utils';
 import type { NodeStatus } from '@/nodes/utils';
 import { type NodeProps } from '@xyflow/react';
-import { Inbox, Play, Square } from 'lucide-react';
+import { Eye, Inbox, Play, Square } from 'lucide-react';
 import type { JiraIssueInputNode } from '../types';
 import { getStatusColor } from '../utils';
 import { NodeShell } from './node-shell';
@@ -44,13 +44,6 @@ export function JiraIssueInputNode({
   const isInProgress = status === 'IN_PROGRESS';
 
   return (
-    <div
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        openRunDialog();
-      }}
-      title="Double-click to view run progress / result"
-    >
     <NodeShell
       id={id}
       selected={selected}
@@ -86,7 +79,7 @@ export function JiraIssueInputNode({
             if (e.key === 'Enter' && canRun) requestRun();
           }}
         />
-        <div className="pt-1">
+        <div className="pt-1 space-y-1">
           {running ? (
             <Button
               size="sm"
@@ -108,9 +101,20 @@ export function JiraIssueInputNode({
               <Play className="mr-2 h-3.5 w-3.5" /> Run
             </Button>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full h-6 gap-1 text-[10px]"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              openRunDialog();
+            }}
+          >
+            <Eye className="h-3 w-3" /> View output
+          </Button>
         </div>
       </CardContent>
     </NodeShell>
-    </div>
   );
 }

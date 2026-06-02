@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button';
 import { CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ModelSelector } from '@/components/ui/llm-selector';
@@ -9,7 +10,7 @@ import { useNodeState } from '@/hooks/use-node-state';
 import { cn } from '@/lib/utils';
 import type { NodeStatus } from '@/nodes/utils';
 import { type NodeProps } from '@xyflow/react';
-import { Wrench } from 'lucide-react';
+import { Eye, Wrench } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { BugFixStageNode } from '../types';
 import { getStatusColor } from '../utils';
@@ -104,13 +105,6 @@ export function BugFixStageNode({
   );
 
   return (
-    <div
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        openRunDialog();
-      }}
-      title="Double-click to view run progress / result"
-    >
     <NodeShell
       id={id}
       selected={selected}
@@ -131,6 +125,18 @@ export function BugFixStageNode({
           <span>Stage</span>
           <span className={cn('font-mono', getStatusColor(status))}>{status}</span>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full h-6 gap-1 text-[10px]"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            openRunDialog();
+          }}
+        >
+          <Eye className="h-3 w-3" /> View output
+        </Button>
         {needsModel && (
           <div
             className="space-y-1"
@@ -156,6 +162,5 @@ export function BugFixStageNode({
         )}
       </CardContent>
     </NodeShell>
-    </div>
   );
 }
