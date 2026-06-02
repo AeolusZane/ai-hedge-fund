@@ -297,14 +297,14 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
       // the default 5-stage fallback because those agent ids are stage
       // keys, not canvas ids).
       if (data.agent) {
-        updateAgentNode(
-          flowKey,
-          data.agent,
-          data.status === 'Done' ? 'COMPLETE' : 'IN_PROGRESS'
-        );
+        const nodeStatus =
+          data.status === 'Done' ? 'COMPLETE' :
+          data.status === 'Error' ? 'ERROR' :
+          'IN_PROGRESS';
+        updateAgentNode(flowKey, data.agent, nodeStatus);
         // Record stage snapshot in history
         historyUpdateStageSnapshot(data.agent, {
-          status: data.status === 'Done' ? 'COMPLETE' : 'IN_PROGRESS',
+          status: nodeStatus,
           startedAt: Date.now(),
           outputSummary: data.status,
         });

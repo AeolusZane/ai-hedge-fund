@@ -203,7 +203,14 @@ class BugFixExecutor(WorkflowExecutor):
             # Stub: sleep + report Done (Test stage still uses this).
             await asyncio.sleep(delay)
 
-        context.emit(ProgressEvent(node_id=node_id, status="Done", payload=done_payload))
+        # Emit Error status when the stage recorded a failure in its
+        # payload, so the frontend can paint the node red instead of
+        # green.  _do_fetch emits its own terminal event before raising
+        # JiraFetchError, so it bypasses this path — fix it there too.
+        if done_payload.get("error"):
+            context.emit(ProgressEvent(node_id=node_id, status="Error", payload=done_payload))
+        else:
+            context.emit(ProgressEvent(node_id=node_id, status="Done", payload=done_payload))
 
     async def _do_fetch(
         self,
@@ -217,17 +224,17 @@ class BugFixExecutor(WorkflowExecutor):
         except JiraMcpConfigError as e:
             message = f"Jira MCP not configured: {e}"
             done_payload["error"] = message
-            # Emit Done so the canvas tile reflects the failure before we abort.
-            context.emit(ProgressEvent(node_id=node_id, status="Done", payload=done_payload))
+            # Emit Error so the canvas tile reflects the failure before we abort.
+            context.emit(ProgressEvent(node_id=node_id, status="Error", payload=done_payload))
             raise JiraFetchError(message)
         except JiraMcpToolError as e:
             done_payload["error"] = str(e)
-            context.emit(ProgressEvent(node_id=node_id, status="Done", payload=done_payload))
+            context.emit(ProgressEvent(node_id=node_id, status="Error", payload=done_payload))
             raise JiraFetchError(str(e))
         except Exception as e:
             message = f"Jira MCP call failed: {e}"
             done_payload["error"] = message
-            context.emit(ProgressEvent(node_id=node_id, status="Done", payload=done_payload))
+            context.emit(ProgressEvent(node_id=node_id, status="Error", payload=done_payload))
             raise JiraFetchError(message)
 
         state["jira_detail"] = detail
