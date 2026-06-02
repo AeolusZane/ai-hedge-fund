@@ -382,11 +382,11 @@ class BugFixExecutor(WorkflowExecutor):
         # project/repo. This avoids requiring the user to manually fill in
         # the Open PR node's repoUrl field when Patch already has repoPath.
         #
-        # Remote priority: prefer `upstream` over `origin`. In a standard
-        # fork workflow, `origin` is the user's fork and `upstream` is the
-        # main repo — PRs should target the main repo. If the user cloned
-        # directly (no fork), `upstream` won't exist and we fall back to
-        # `origin`.
+        # Remote priority: use the user-configured `prTargetRemote` (default
+        # "upstream") first. In a standard fork workflow, `origin` is the
+        # user's fork and `upstream` is the main repo — PRs should target
+        # the main repo. If the configured remote doesn't exist, fall back
+        # to `origin`, then the first available remote.
         if (not project or not repo) and state.get("repo_path"):
             try:
                 import subprocess
@@ -396,13 +396,15 @@ class BugFixExecutor(WorkflowExecutor):
                     stderr=subprocess.DEVNULL,
                     timeout=5,
                 ).decode().strip().splitlines()
-                # Pick the best remote: upstream > origin > first available
+                # User-configured remote name (default: "upstream")
+                preferred_remote = str(node_data.get("prTargetRemote") or "upstream").strip()
+                # Pick the best remote: user preference > origin > first available
                 chosen = None
-                for preferred in ("upstream", "origin"):
-                    if preferred in remotes:
-                        chosen = preferred
-                        break
-                if not chosen and remotes:
+                if preferred_remote in remotes:
+                    chosen = preferred_remote
+                elif "origin" in remotes:
+                    chosen = "origin"
+                elif remotes:
                     chosen = remotes[0]
                 if chosen:
                     remote_url = subprocess.check_output(

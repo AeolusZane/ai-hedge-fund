@@ -139,6 +139,7 @@ export function BugFixStageNode({
 
   // PR config (Open PR only)
   const [repoUrl, setRepoUrl] = useNodeState<string>(id, 'repoUrl', '');
+  const [prTargetRemote, setPrTargetRemote] = useNodeState<string>(id, 'prTargetRemote', 'upstream');
 
   // View Output dialog
   const [outputOpen, setOutputOpen] = useState(false);
@@ -233,7 +234,8 @@ export function BugFixStageNode({
         {needsTargetBranch && field('Target branch', targetBranch, setTargetBranch, 'main')}
         {needsPrConfig && (
           <>
-            {field('Repo URL', repoUrl, setRepoUrl, 'https://bitbucket.example.com/projects/AI/repos/corevo')}
+            {field('PR target remote', prTargetRemote, setPrTargetRemote, 'upstream')}
+            {field('Repo URL (optional)', repoUrl, setRepoUrl, 'auto-detected from remote')}
           </>
         )}
 
