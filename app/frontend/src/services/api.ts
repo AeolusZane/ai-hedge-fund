@@ -37,4 +37,18 @@ export const api = {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.json();
   },
+
+  deleteFlowRun: async (flowId: number, runId: number): Promise<void> => {
+    const response = await fetch(`${API_BASE_URL}/flows/${flowId}/runs/${runId}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  },
+
+  deleteAllFlowRuns: async (flowId: number): Promise<void> => {
+    const response = await fetch(`${API_BASE_URL}/flows/${flowId}/runs/`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  },
 };

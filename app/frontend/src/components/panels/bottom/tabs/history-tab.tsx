@@ -4,7 +4,7 @@ import { FlowRunDetail, FlowRunStatus, FlowRunSummary } from '@/services/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, ChevronRight, ChevronDown } from 'lucide-react';
+import { RefreshCw, ChevronRight, ChevronDown, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 interface HistoryTabProps {
@@ -40,6 +40,8 @@ export function HistoryTab({ className }: HistoryTabProps) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [detailById, setDetailById] = useState<Record<number, FlowRunDetail>>({});
   const [detailLoadingId, setDetailLoadingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   const fetchRuns = useCallback(async () => {
     if (currentFlowId == null) {
@@ -84,6 +86,39 @@ export function HistoryTab({ className }: HistoryTabProps) {
     [expandedId, detailById, currentFlowId]
   );
 
+  const deleteRun = useCallback(
+    async (runId: number, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (currentFlowId == null) return;
+      setDeletingId(runId);
+      try {
+        await api.deleteFlowRun(currentFlowId, runId);
+        setRuns((prev) => prev.filter((r) => r.id !== runId));
+        if (expandedId === runId) setExpandedId(null);
+      } catch (err: any) {
+        setError(err?.message ?? 'Failed to delete run');
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [currentFlowId, expandedId]
+  );
+
+  const deleteAllRuns = useCallback(async () => {
+    if (currentFlowId == null || runs.length === 0) return;
+    setDeletingAll(true);
+    try {
+      await api.deleteAllFlowRuns(currentFlowId);
+      setRuns([]);
+      setExpandedId(null);
+      setDetailById({});
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to delete runs');
+    } finally {
+      setDeletingAll(false);
+    }
+  }, [currentFlowId, runs.length]);
+
   if (currentFlowId == null) {
     return (
       <div className={cn('h-full flex items-center justify-center text-muted-foreground text-sm', className)}>
@@ -98,9 +133,24 @@ export function HistoryTab({ className }: HistoryTabProps) {
         <div className="text-xs text-muted-foreground">
           {loading ? 'Loading…' : `${runs.length} run${runs.length === 1 ? '' : 's'}`}
         </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={fetchRuns} aria-label="Refresh">
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-        </Button>
+        <div className="flex items-center gap-1">
+          {runs.length > 0 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+              onClick={deleteAllRuns}
+              disabled={deletingAll}
+              aria-label="Clear all"
+              title="Delete all runs"
+            >
+              <Trash2 size={14} className={deletingAll ? 'animate-pulse' : ''} />
+            </Button>
+          )}
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={fetchRuns} aria-label="Refresh">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -135,6 +185,16 @@ export function HistoryTab({ className }: HistoryTabProps) {
                 <span className="text-xs text-muted-foreground">
                   {formatDuration(run.started_at, run.completed_at)}
                 </span>
+                <button
+                  type="button"
+                  onClick={(e) => deleteRun(run.id, e)}
+                  disabled={deletingId === run.id}
+                  className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                  aria-label="Delete run"
+                  title="Delete this run"
+                >
+                  <Trash2 size={12} className={deletingId === run.id ? 'animate-pulse' : ''} />
+                </button>
               </button>
 
               {expanded && (
