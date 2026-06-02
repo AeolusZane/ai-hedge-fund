@@ -192,6 +192,8 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
             ...(internal.repoPath ? { repoPath: internal.repoPath } : {}),
             ...(internal.repoUrl ? { repoUrl: internal.repoUrl } : {}),
             ...(internal.targetBranch ? { targetBranch: internal.targetBranch } : {}),
+            ...(internal.pushRemote ? { pushRemote: internal.pushRemote } : {}),
+            ...(internal.prTargetRemote ? { prTargetRemote: internal.prTargetRemote } : {}),
           },
         };
       });

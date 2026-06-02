@@ -22,6 +22,7 @@ import { NodeShell } from './node-shell';
 const STAGES_THAT_USE_AN_LLM = new Set(['Analyze']);
 const STAGES_THAT_NEED_REPO_PATH = new Set(['Patch']);
 const STAGES_THAT_NEED_TARGET_BRANCH = new Set(['Patch']);
+const STAGES_THAT_NEED_PR_CONFIG = new Set(['Open PR']);
 
 /**
  * Bug-fix stage node — the canvas counterpart to one bug_fix executor stage.
@@ -123,6 +124,7 @@ export function BugFixStageNode({
   const needsModel = STAGES_THAT_USE_AN_LLM.has(data.name);
   const needsRepoPath = STAGES_THAT_NEED_REPO_PATH.has(data.name);
   const needsTargetBranch = STAGES_THAT_NEED_TARGET_BRANCH.has(data.name);
+  const needsPrConfig = STAGES_THAT_NEED_PR_CONFIG.has(data.name);
 
   // Model selector state (Analyze)
   const [models, setModels] = useState<LanguageModel[]>([]);
@@ -134,6 +136,10 @@ export function BugFixStageNode({
 
   // Target branch (Patch only)
   const [targetBranch, setTargetBranch] = useNodeState<string>(id, 'targetBranch', 'main');
+
+  // PR config (Open PR only) — optional overrides, auto-detect if empty
+  const [pushRemote, setPushRemote] = useNodeState<string>(id, 'pushRemote', '');
+  const [prTargetRemote, setPrTargetRemote] = useNodeState<string>(id, 'prTargetRemote', '');
 
   // View Output dialog
   const [outputOpen, setOutputOpen] = useState(false);
@@ -226,6 +232,12 @@ export function BugFixStageNode({
         )}
         {needsRepoPath && field('Repo path', repoPath, setRepoPath, '/absolute/path/to/repo')}
         {needsTargetBranch && field('Target branch', targetBranch, setTargetBranch, 'main')}
+        {needsPrConfig && (
+          <>
+            {field('Push remote (optional)', pushRemote, setPushRemote, 'auto-detect fork')}
+            {field('PR target remote (optional)', prTargetRemote, setPrTargetRemote, 'auto-detect main')}
+          </>
+        )}
 
         {/* View Output button — opens the step detail panel */}
         <Button

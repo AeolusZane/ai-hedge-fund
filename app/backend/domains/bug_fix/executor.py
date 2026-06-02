@@ -406,9 +406,9 @@ class BugFixExecutor(WorkflowExecutor):
             repo = repo or parsed_repo
 
         # Fallback: auto-detect project/repo from git remotes.
-        # Strategy: classify each remote URL as "fork" (contains ~username)
+        # Strategy: if user specified a prTargetRemote, use that remote's URL.
+        # Otherwise, classify each remote URL as "fork" (contains ~username)
         # or "main repo" (no ~). PR target = first non-fork remote.
-        # This works regardless of remote naming (upstream/up/fanruan/etc).
         if (not project or not repo) and state.get("repo_path"):
             try:
                 import subprocess
@@ -418,24 +418,38 @@ class BugFixExecutor(WorkflowExecutor):
                     stderr=subprocess.DEVNULL,
                     timeout=5,
                 ).decode().strip().splitlines()
-                # Get URL for each remote and classify
-                for remote_name in remotes:
-                    try:
-                        remote_url = subprocess.check_output(
-                            ["git", "remote", "get-url", remote_name],
-                            cwd=state["repo_path"],
-                            stderr=subprocess.DEVNULL,
-                            timeout=5,
-                        ).decode().strip()
-                    except Exception:
-                        continue
-                    if not remote_url or _is_fork_url(remote_url):
-                        continue  # skip forks — we want the main repo
-                    parsed_project, parsed_repo = _parse_repo_url(remote_url)
-                    if parsed_project and parsed_repo:
+                # If user specified a target remote, use it directly
+                preferred = str(node_data.get("prTargetRemote") or "").strip()
+                if preferred and preferred in remotes:
+                    remote_url = subprocess.check_output(
+                        ["git", "remote", "get-url", preferred],
+                        cwd=state["repo_path"],
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    ).decode().strip()
+                    if remote_url:
+                        parsed_project, parsed_repo = _parse_repo_url(remote_url)
                         project = project or parsed_project
                         repo = repo or parsed_repo
-                        break
+                else:
+                    # Auto-detect: skip forks, pick first non-fork remote
+                    for remote_name in remotes:
+                        try:
+                            remote_url = subprocess.check_output(
+                                ["git", "remote", "get-url", remote_name],
+                                cwd=state["repo_path"],
+                                stderr=subprocess.DEVNULL,
+                                timeout=5,
+                            ).decode().strip()
+                        except Exception:
+                            continue
+                        if not remote_url or _is_fork_url(remote_url):
+                            continue  # skip forks — we want the main repo
+                        parsed_project, parsed_repo = _parse_repo_url(remote_url)
+                        if parsed_project and parsed_repo:
+                            project = project or parsed_project
+                            repo = repo or parsed_repo
+                            break
             except Exception:
                 pass  # git not available or not a git repo — fall through
 
