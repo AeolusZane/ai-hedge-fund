@@ -362,11 +362,18 @@ function sliceFor(stageName: string, result: any): any {
     case 'Jira Issue Input':
       return result.jira ?? null;
     case 'Analyze':
-      return result.analysis ?? (result.analyze_error ? { error: result.analyze_error } : null);
+      // Prioritize error over empty/partial analysis
+      if (result.analyze_error) return { error: result.analyze_error };
+      if (result.analysis && Object.keys(result.analysis).length > 0) return result.analysis;
+      return null;
     case 'Patch':
-      return result.patch ?? (result.patch_error ? { error: result.patch_error } : null);
+      if (result.patch_error) return { error: result.patch_error };
+      if (result.patch && Object.keys(result.patch).length > 0) return result.patch;
+      return null;
     case 'Open PR':
-      return result.open_pr ?? (result.open_pr_error ? { error: result.open_pr_error } : null);
+      if (result.open_pr_error) return { error: result.open_pr_error };
+      if (result.open_pr && Object.keys(result.open_pr).length > 0) return result.open_pr;
+      return null;
     default:
       return null;
   }
