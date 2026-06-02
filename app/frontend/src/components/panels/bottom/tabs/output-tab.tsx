@@ -37,42 +37,56 @@ export function OutputTab({ className }: OutputTabProps) {
   const latestRun = history.runs[0];
   const isRunning = phase === 'running';
 
-  // Derive stage entries from node-output-store (live data)
+  // Derive stage entries — prefer live data from node-output-store;
+  // fall back to history stageSnapshots when live data is gone (e.g. after refresh).
   const stageEntries = useMemo(() => {
     const agents = Object.keys(nodeOutput.progressByAgent);
-    if (agents.length === 0 && !latestRun) return [];
 
-    return agents.map((agentId) => {
-      const progress = nodeOutput.progressByAgent[agentId] ?? [];
-      const streaming = nodeOutput.streamingByAgent[agentId] ?? '';
-      const lastProgress = progress[progress.length - 1];
-      const isDone = lastProgress?.status === 'Done';
-      const status: NodeStatus = isDone ? 'COMPLETE' : (progress.some(p => p.status.toLowerCase().includes('error')) ? 'ERROR' : 'IN_PROGRESS');
-      const startedAt = progress[0]?.ts;
-      const completedAt = isDone ? lastProgress?.ts : undefined;
-      const elapsed = startedAt ? elapsedSeconds({ status, startedAt, completedAt }) : null;
+    // Live path: use in-memory progress data
+    if (agents.length > 0) {
+      return agents.map((agentId) => {
+        const progress = nodeOutput.progressByAgent[agentId] ?? [];
+        const streaming = nodeOutput.streamingByAgent[agentId] ?? '';
+        const lastProgress = progress[progress.length - 1];
+        const isDone = lastProgress?.status === 'Done';
+        const status: NodeStatus = isDone ? 'COMPLETE' : (progress.some(p => p.status.toLowerCase().includes('error')) ? 'ERROR' : 'IN_PROGRESS');
+        const startedAt = progress[0]?.ts;
+        const completedAt = isDone ? lastProgress?.ts : undefined;
+        const elapsed = startedAt ? elapsedSeconds({ status, startedAt, completedAt }) : null;
 
-      // Get last streaming line for live preview
-      const streamLines = streaming.split('\n').filter(Boolean);
-      const lastLine = streamLines[streamLines.length - 1] ?? '';
+        const streamLines = streaming.split('\n').filter(Boolean);
+        const lastLine = streamLines[streamLines.length - 1] ?? '';
 
-      // Try to get a meaningful agent name from snapshot or fallback to id
-      const name = latestRun?.stageSnapshots[agentId]?.outputSummary
-        ? agentId
-        : agentId;
+        return {
+          id: agentId,
+          name: agentId,
+          status,
+          startedAt,
+          completedAt,
+          elapsed,
+          lastProgressStatus: lastProgress?.status ?? '',
+          streamingLastLine: lastLine,
+          isRunning: !isDone,
+        };
+      });
+    }
 
-      return {
+    // History fallback: reconstruct from stageSnapshots
+    if (latestRun?.stageSnapshots) {
+      return Object.entries(latestRun.stageSnapshots).map(([agentId, snap]) => ({
         id: agentId,
-        name,
-        status,
-        startedAt,
-        completedAt,
-        elapsed,
-        lastProgressStatus: lastProgress?.status ?? '',
-        streamingLastLine: lastLine,
-        isRunning: !isDone,
-      };
-    });
+        name: agentId,
+        status: snap.status,
+        startedAt: snap.startedAt,
+        completedAt: snap.completedAt,
+        elapsed: snap.startedAt ? elapsedSeconds({ status: snap.status, startedAt: snap.startedAt, completedAt: snap.completedAt }) : null,
+        lastProgressStatus: snap.outputSummary ?? '',
+        streamingLastLine: '',
+        isRunning: false,
+      }));
+    }
+
+    return [];
   }, [nodeOutput, latestRun]);
 
   // Format elapsed time
