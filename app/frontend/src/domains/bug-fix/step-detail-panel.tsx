@@ -144,28 +144,64 @@ export function StepDetailPanel() {
                 </div>
               )}
 
-              {/* Root cause (Analyze stage) */}
-              {resultSlice.root_cause && (
+              {/* ── Analyze stage fields ── */}
+
+              {/* Root cause hypothesis */}
+              {resultSlice.root_cause_hypothesis && (
                 <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-md p-3">
-                  <div className="text-xs font-semibold text-blue-600 dark:text-blue-400 mb-1">Root Cause</div>
-                  <div className="text-xs text-muted-foreground">{resultSlice.root_cause}</div>
+                  <div className="text-xs font-semibold text-blue-600 dark:text-blue-400 mb-1">Root Cause Hypothesis</div>
+                  <div className="text-xs text-muted-foreground">{resultSlice.root_cause_hypothesis}</div>
                 </div>
               )}
 
-              {/* Affected files (Analyze stage) */}
-              {resultSlice.affected_files && Array.isArray(resultSlice.affected_files) && (
+              {/* Affected areas */}
+              {resultSlice.affected_areas && Array.isArray(resultSlice.affected_areas) && resultSlice.affected_areas.length > 0 && (
                 <div className="bg-muted/30 rounded-md p-3">
-                  <div className="text-xs font-semibold mb-1">Affected Files</div>
+                  <div className="text-xs font-semibold mb-1">Affected Areas</div>
                   <div className="text-xs text-muted-foreground space-y-0.5">
-                    {resultSlice.affected_files.map((f: string, i: number) => (
-                      <div key={i}>{f}</div>
+                    {resultSlice.affected_areas.map((f: string, i: number) => (
+                      <div key={i} className="flex items-center gap-1">
+                        <span className="text-[10px] text-muted-foreground/60">•</span> {f}
+                      </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Patch blocked (Patch stage) */}
-              {resultSlice.patch_status === 'blocked' && (
+              {/* Suggested approach */}
+              {resultSlice.suggested_approach && (
+                <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-md p-3">
+                  <div className="text-xs font-semibold text-green-600 dark:text-green-400 mb-1">Suggested Approach</div>
+                  <div className="text-xs text-muted-foreground whitespace-pre-wrap">{resultSlice.suggested_approach}</div>
+                </div>
+              )}
+
+              {/* Open questions */}
+              {resultSlice.open_questions && Array.isArray(resultSlice.open_questions) && resultSlice.open_questions.length > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-md p-3">
+                  <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1">Open Questions</div>
+                  <div className="text-xs text-muted-foreground space-y-0.5">
+                    {resultSlice.open_questions.map((q: string, i: number) => (
+                      <div key={i} className="flex items-start gap-1">
+                        <span className="text-[10px] text-muted-foreground/60 mt-0.5">?</span> {q}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Raw analysis (when JSON parse failed) */}
+              {resultSlice.raw && !resultSlice.root_cause_hypothesis && (
+                <div className="bg-muted/30 rounded-md p-3">
+                  <div className="text-xs font-semibold mb-1">Raw Analysis</div>
+                  <pre className="whitespace-pre-wrap text-xs text-muted-foreground">{resultSlice.raw}</pre>
+                </div>
+              )}
+
+              {/* ── Patch stage fields ── */}
+
+              {/* Patch blocked */}
+              {resultSlice.status === 'blocked' && (
                 <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-md p-3">
                   <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1">Patch Blocked</div>
                   {resultSlice.blocker_reason && (
@@ -181,42 +217,116 @@ export function StepDetailPanel() {
                 </div>
               )}
 
-              {/* Patch files (Patch stage) */}
-              {resultSlice.patch_status !== 'blocked' && resultSlice.patch_files && Array.isArray(resultSlice.patch_files) && (
+              {/* Patched files */}
+              {resultSlice.files_changed && Array.isArray(resultSlice.files_changed) && resultSlice.files_changed.length > 0 && (
                 <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-md p-3">
-                  <div className="text-xs font-semibold text-green-600 dark:text-green-400 mb-1">Patched Files</div>
-                  <div className="text-xs text-muted-foreground space-y-0.5">
-                    {resultSlice.patch_files.map((f: string, i: number) => (
+                  <div className="text-xs font-semibold text-green-600 dark:text-green-400 mb-1">
+                    Files Changed ({resultSlice.files_changed.length})
+                  </div>
+                  <div className="text-xs text-muted-foreground space-y-0.5 font-mono">
+                    {resultSlice.files_changed.map((f: string, i: number) => (
                       <div key={i}>{f}</div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* PR URL (Open PR stage) */}
-              {resultSlice.pr_url && (
-                <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-md p-3">
-                  <div className="text-xs font-semibold text-green-600 dark:text-green-400 mb-1">Pull Request</div>
-                  <a href={resultSlice.pr_url} target="_blank" rel="noopener noreferrer"
-                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline break-all">
-                    {resultSlice.pr_url}
-                  </a>
+              {/* Diff */}
+              {resultSlice.diff && (
+                <div className="bg-muted/30 rounded-md p-3">
+                  <div className="text-xs font-semibold mb-1">Diff</div>
+                  <pre className="whitespace-pre-wrap text-[11px] text-muted-foreground font-mono max-h-[300px] overflow-y-auto leading-relaxed">
+                    {resultSlice.diff}
+                  </pre>
                 </div>
               )}
 
-              {/* Generic fallback: show all keys */}
-              {!resultSlice.error && !resultSlice.root_cause && !resultSlice.patch_files && !resultSlice.pr_url && resultSlice.patch_status !== 'blocked' && (
-                <div className="bg-muted/30 rounded-md p-3 text-xs">
-                  {Object.entries(resultSlice).map(([key, val]) => (
-                    <div key={key} className="mb-1">
-                      <span className="font-semibold">{key}: </span>
-                      <span className="text-muted-foreground">
-                        {typeof val === 'string' ? val : JSON.stringify(val)}
-                      </span>
-                    </div>
-                  ))}
+              {/* ── Open PR stage fields ── */}
+
+              {/* Branch */}
+              {resultSlice.branch && (
+                <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-md p-3">
+                  <div className="text-xs font-semibold text-green-600 dark:text-green-400 mb-1">Branch</div>
+                  <div className="text-xs text-muted-foreground font-mono">{resultSlice.branch}</div>
                 </div>
               )}
+
+              {/* PR payload */}
+              {resultSlice.pr && (
+                <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-md p-3">
+                  <div className="text-xs font-semibold text-green-600 dark:text-green-400 mb-1">Pull Request</div>
+                  {resultSlice.pr.url && (
+                    <a href={resultSlice.pr.url} target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline break-all">
+                      {resultSlice.pr.url}
+                    </a>
+                  )}
+                  {resultSlice.pr.id && (
+                    <div className="text-xs text-muted-foreground mt-1">PR #{resultSlice.pr.id}</div>
+                  )}
+                  {!resultSlice.pr.url && (
+                    <pre className="whitespace-pre-wrap text-xs text-muted-foreground">
+                      {JSON.stringify(resultSlice.pr, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              )}
+
+              {/* ── Jira stage fields ── */}
+
+              {resultSlice.summary && (
+                <div className="bg-muted/30 rounded-md p-3">
+                  <div className="text-xs font-semibold mb-1">Summary</div>
+                  <div className="text-xs text-muted-foreground">{resultSlice.summary}</div>
+                </div>
+              )}
+
+              {resultSlice.description && (
+                <div className="bg-muted/30 rounded-md p-3">
+                  <div className="text-xs font-semibold mb-1">Description</div>
+                  <div className="text-xs text-muted-foreground whitespace-pre-wrap max-h-[200px] overflow-y-auto">
+                    {typeof resultSlice.description === 'string'
+                      ? resultSlice.description.slice(0, 2000)
+                      : JSON.stringify(resultSlice.description, null, 2)}
+                  </div>
+                </div>
+              )}
+
+              {resultSlice.status && typeof resultSlice.status === 'string' && (
+                <div className="flex gap-3 text-xs">
+                  <span><span className="font-semibold">Status:</span> <span className="text-muted-foreground">{resultSlice.status}</span></span>
+                  {resultSlice.priority && <span><span className="font-semibold">Priority:</span> <span className="text-muted-foreground">{resultSlice.priority}</span></span>}
+                  {resultSlice.assignee && <span><span className="font-semibold">Assignee:</span> <span className="text-muted-foreground">{resultSlice.assignee}</span></span>}
+                </div>
+              )}
+
+              {/* ── Generic fallback: show unrecognized keys ── */}
+              {(() => {
+                const knownKeys = new Set([
+                  'error', 'root_cause_hypothesis', 'affected_areas', 'suggested_approach',
+                  'open_questions', 'raw', 'status', 'files_changed', 'diff',
+                  'blocker_reason', 'blocker_next_step', 'branch', 'pr',
+                  'summary', 'description', 'priority', 'assignee', 'key',
+                  'comment', 'comments', 'components', 'labels', 'issuetype',
+                  'created', 'updated', 'reporter', 'creator', 'project',
+                  'fixVersions', 'versions', 'resolution',
+                ]);
+                const unknownEntries = Object.entries(resultSlice).filter(([k]) => !knownKeys.has(k));
+                if (unknownEntries.length === 0) return null;
+                return (
+                  <div className="bg-muted/30 rounded-md p-3 text-xs">
+                    <div className="font-semibold mb-1 text-muted-foreground">Other Fields</div>
+                    {unknownEntries.map(([key, val]) => (
+                      <div key={key} className="mb-1">
+                        <span className="font-semibold">{key}: </span>
+                        <span className="text-muted-foreground">
+                          {typeof val === 'string' ? val : JSON.stringify(val)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
