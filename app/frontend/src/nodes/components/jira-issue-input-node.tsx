@@ -3,7 +3,6 @@ import { CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useFlowContext } from '@/contexts/flow-context';
 import { useNodeContext } from '@/contexts/node-context';
-import { NodeOutputDialog } from '@/domains/bug-fix/node-output-dialog';
 import {
   requestRun,
   requestStop,
@@ -13,8 +12,7 @@ import { useNodeState } from '@/hooks/use-node-state';
 import { cn } from '@/lib/utils';
 import type { NodeStatus } from '@/nodes/utils';
 import { type NodeProps } from '@xyflow/react';
-import { Eye, Inbox, Play, Square } from 'lucide-react';
-import { useState } from 'react';
+import { Inbox, Play, Square } from 'lucide-react';
 import type { JiraIssueInputNode } from '../types';
 import { getStatusColor } from '../utils';
 import { NodeShell } from './node-shell';
@@ -41,8 +39,6 @@ export function JiraIssueInputNode({
   // branch anyway. Gating only on issueKey lets a stale or stuck
   // phase still recover with a single click.
   const canRun = issueKey.trim().length > 0;
-
-  const [outputOpen, setOutputOpen] = useState(false);
 
   const { currentFlowId } = useFlowContext();
   const { getAgentNodeDataForFlow } = useNodeContext();
@@ -108,24 +104,6 @@ export function JiraIssueInputNode({
               <Play className="mr-2 h-3.5 w-3.5" /> Run
             </Button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full h-6 gap-1 text-[10px]"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              setOutputOpen(true);
-            }}
-          >
-            <Eye className="h-3 w-3" /> View output
-          </Button>
-          <NodeOutputDialog
-            open={outputOpen}
-            onOpenChange={setOutputOpen}
-            agentId={id}
-            stageName={data.name}
-          />
         </div>
       </CardContent>
     </NodeShell>
