@@ -1,6 +1,26 @@
 import { type Edge, type Node, getConnectedEdges } from '@xyflow/react';
 
-export type NodeStatus = 'IDLE' | 'IN_PROGRESS' | 'COMPLETE' | 'ERROR';
+export type NodeStatus = 'IDLE' | 'IN_PROGRESS' | 'COMPLETE' | 'ERROR' | 'PAUSED';
+
+/** Rich run-time info for a node — used by the observability layer. */
+export interface NodeRunInfo {
+  status: NodeStatus;
+  /** 0–100 progress percentage (only meaningful when IN_PROGRESS). */
+  progress?: number;
+  /** Timestamp (ms) when this stage started. */
+  startedAt?: number;
+  /** Timestamp (ms) when this stage completed. */
+  completedAt?: number;
+  /** One-line output summary (e.g. "1 MEDIUM: token in localStorage"). */
+  outputSummary?: string;
+}
+
+/** Derive elapsed seconds from start/end timestamps. */
+export function elapsedSeconds(info: NodeRunInfo): number | null {
+  if (!info.startedAt) return null;
+  const end = info.completedAt ?? Date.now();
+  return Math.round((end - info.startedAt) / 1000);
+}
 
 /**
  * Returns the appropriate background color class based on node status
@@ -8,11 +28,31 @@ export type NodeStatus = 'IDLE' | 'IN_PROGRESS' | 'COMPLETE' | 'ERROR';
 export function getStatusColor(status: NodeStatus): string {
   switch (status) {
     case 'IN_PROGRESS':
-      return 'bg-amber-500  dark:bg-amber-80';
+      return 'text-amber-500 dark:text-amber-400';
+    case 'COMPLETE':
+      return 'text-green-500 dark:text-green-400';
     case 'ERROR':
-      return 'bg-red-500 dark:bg-red-800';
+      return 'text-red-500 dark:text-red-400';
+    case 'PAUSED':
+      return 'text-amber-500 dark:text-amber-400';
     default:
-      return 'bg-node';
+      return 'text-muted-foreground';
+  }
+}
+
+/** Background / fill color for status bars and badges. */
+export function getStatusBg(status: NodeStatus): string {
+  switch (status) {
+    case 'IN_PROGRESS':
+      return 'bg-amber-500 dark:bg-amber-400';
+    case 'COMPLETE':
+      return 'bg-green-500 dark:bg-green-400';
+    case 'ERROR':
+      return 'bg-red-500 dark:bg-red-400';
+    case 'PAUSED':
+      return 'bg-amber-500 dark:bg-amber-400';
+    default:
+      return 'bg-muted';
   }
 }
 

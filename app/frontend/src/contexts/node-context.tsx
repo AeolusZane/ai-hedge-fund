@@ -1,7 +1,7 @@
 import { LanguageModel } from '@/data/models';
 import { createContext, ReactNode, useCallback, useContext, useState } from 'react';
 
-export type NodeStatus = 'IDLE' | 'IN_PROGRESS' | 'COMPLETE' | 'ERROR';
+export type NodeStatus = 'IDLE' | 'IN_PROGRESS' | 'COMPLETE' | 'ERROR' | 'PAUSED';
 
 // Message history item
 export interface MessageItem {

@@ -5,6 +5,13 @@
  * event into this module-level store so individual canvas nodes can
  * pop their own "what did THIS stage do?" dialog without re-subscribing
  * to the SSE stream themselves.
+ *
+ * --- Persistence ---
+ * Every mutation is synced to localStorage so a page refresh doesn't
+ * lose the run history. The key is scoped per flow:
+ *   `bugfix-output-{flowId}`
+ * On init the store tries to hydrate from localStorage; on reset it
+ * clears the key.
  */
 import { useSyncExternalStore } from 'react';
 import type { RunPhase } from './run-controller';
@@ -33,11 +40,48 @@ const initial: NodeOutputState = {
   phase: 'idle',
 };
 
+// ─── localStorage helpers ────────────────────────────────────
+
+const STORAGE_KEY_PREFIX = 'bugfix-output-';
+let currentFlowId: string | null = null;
+
+function storageKey(): string {
+  return `${STORAGE_KEY_PREFIX}${currentFlowId ?? 'default'}`;
+}
+
+function persist(): void {
+  try {
+    localStorage.setItem(storageKey(), JSON.stringify(state));
+  } catch {
+    // localStorage full or unavailable — silent fail, in-memory still works
+  }
+}
+
+function hydrate(flowId: string | null): NodeOutputState {
+  try {
+    const key = `${STORAGE_KEY_PREFIX}${flowId ?? 'default'}`;
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw) as NodeOutputState;
+      // Basic sanity check
+      if (parsed && typeof parsed.phase === 'string') {
+        return parsed;
+      }
+    }
+  } catch {
+    // Corrupted data — fall through to initial
+  }
+  return { ...initial };
+}
+
+// ─── Store core ──────────────────────────────────────────────
+
 let state: NodeOutputState = initial;
 const listeners = new Set<() => void>();
 
 function emit() {
   for (const l of listeners) l();
+  persist();
 }
 
 function subscribe(listener: () => void): () => void {
@@ -45,9 +89,27 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/**
+ * Switch the flow context — hydrates from localStorage for the new flow.
+ * Called when the user switches tabs or the flowId changes.
+ */
+export function switchFlowContext(flowId: string | null): void {
+  currentFlowId = flowId;
+  state = hydrate(flowId);
+  emit(); // notify subscribers + persist
+}
+
 export function resetNodeOutput(): void {
   state = { ...initial, streamingByAgent: {}, progressByAgent: {} };
   emit();
+  // Also clear localStorage for this flow
+  try {
+    localStorage.removeItem(storageKey());
+  } catch {
+    // ignore
+  }
+  // Re-persist the clean state
+  persist();
 }
 
 export function appendStreamChunk(agentId: string, chunk: string): void {

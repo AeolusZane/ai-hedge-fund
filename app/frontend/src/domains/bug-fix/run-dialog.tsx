@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useFlowContext } from '@/contexts/flow-context';
+import { useLayoutContext } from '@/contexts/layout-context';
 import { useNodeContext } from '@/contexts/node-context';
 import type { DomainRunDialogProps } from '@/core/types/domain-pack';
 import { getNodeInternalState } from '@/hooks/use-node-state';
@@ -30,6 +31,7 @@ import {
   setPhase as storeSetPhase,
   setResult as storeSetResult,
 } from './node-output-store';
+import { startRun as historyStartRun, finishRun as historyFinishRun, updateStageSnapshot as historyUpdateStageSnapshot } from './run-history-store';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -52,6 +54,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
   const reactFlow = useReactFlow();
   const { currentFlowId } = useFlowContext();
   const { updateAgentNode, updateAgentNodes } = useNodeContext();
+  const { expandBottomPanel, setBottomPanelTab } = useLayoutContext();
   const flowKey = currentFlowId?.toString() || null;
   const [issueKey, setIssueKey] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
@@ -156,6 +159,9 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     reset();
     setPhase('running');
 
+    // Record this run in history store
+    historyStartRun(flowKey ?? 'default', trimmed);
+
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -218,6 +224,11 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
       if (!response.ok || !response.body) {
         throw new Error(`HTTP ${response.status}`);
       }
+
+      // Close dialog and switch to Output Tab — progress now lives there
+      onOpenChange(false);
+      setBottomPanelTab('output');
+      expandBottomPanel();
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -291,14 +302,24 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
           data.agent,
           data.status === 'Done' ? 'COMPLETE' : 'IN_PROGRESS'
         );
+        // Record stage snapshot in history
+        historyUpdateStageSnapshot(data.agent, {
+          status: data.status === 'Done' ? 'COMPLETE' : 'IN_PROGRESS',
+          startedAt: Date.now(),
+          outputSummary: data.status,
+        });
       }
     } else if (data.type === 'complete') {
       setResult(data.data);
       storeSetResult(data.data);
       setPhase('complete');
+      setRunPhase('complete');
+      historyFinishRun('complete');
     } else if (data.type === 'error') {
       setError(data.message ?? 'Run failed');
       setPhase('error');
+      setRunPhase('error');
+      historyFinishRun('error');
     }
   };
 

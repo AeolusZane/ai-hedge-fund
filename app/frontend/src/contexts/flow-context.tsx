@@ -3,10 +3,12 @@ import type { WorkflowTemplate } from '@/core/types/workflow-template';
 import { getNodeTypeDefinition } from '@/data/node-mappings';
 import { flowConnectionManager } from '@/hooks/use-flow-connection';
 import { clearAllNodeStates, getAllNodeStates, setNodeInternalState, setCurrentFlowId as setNodeStateFlowId } from '@/hooks/use-node-state';
+import { switchFlowContext as switchOutputContext } from '@/domains/bug-fix/node-output-store';
+import { switchHistoryContext } from '@/domains/bug-fix/run-history-store';
 import { flowService } from '@/services/flow-service';
 import { Flow } from '@/types/flow';
 import { MarkerType, ReactFlowInstance, useReactFlow, XYPosition } from '@xyflow/react';
-import { createContext, ReactNode, useCallback, useContext, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 
 interface FlowContextType {
   addComponentToFlow: (componentName: string) => Promise<void>;
@@ -40,6 +42,13 @@ export function FlowProvider({ children }: FlowProviderProps) {
   const [currentFlowId, setCurrentFlowId] = useState<number | null>(null);
   const [currentFlowName, setCurrentFlowName] = useState('Untitled Flow');
   const [isUnsaved, setIsUnsaved] = useState(false);
+
+  // Sync flowId to persisted stores so they hydrate on tab switch / refresh
+  useEffect(() => {
+    const idStr = currentFlowId?.toString() ?? null;
+    switchOutputContext(idStr);
+    switchHistoryContext(idStr);
+  }, [currentFlowId]);
 
   // Calculate viewport center position with optional randomness
   const getViewportPosition = useCallback((addRandomness = false): XYPosition => {

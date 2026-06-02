@@ -3,6 +3,8 @@ import type { ComponentGroup } from '@/core/types/component-group';
 import { useComponentGroups } from '@/hooks/use-component-groups';
 import { useResizable } from '@/hooks/use-resizable';
 import { cn } from '@/lib/utils';
+import { useStepDetailTarget } from '@/domains/bug-fix/step-detail-context';
+import { StepDetailPanel } from '@/domains/bug-fix/step-detail-panel';
 import { ReactNode, useEffect, useState } from 'react';
 import { ComponentActions } from './component-actions';
 import { ComponentList } from './component-list';
@@ -31,6 +33,10 @@ export function RightSidebar({
   useEffect(() => {
     onWidthChange?.(width);
   }, [width, onWidthChange]);
+
+  // Step detail target — when set, sidebar switches to detail mode
+  const stepDetailTarget = useStepDetailTarget();
+  const isDetailMode = stepDetailTarget !== null;
   
   // The active domain decides which palette groups appear. Switching domain
   // re-runs the loader.
@@ -83,19 +89,26 @@ export function RightSidebar({
         width: `${width}px`
       }}
     >
-      <ComponentActions />
+      {/* Detail mode: show Step Detail Panel */}
+      {isDetailMode ? (
+        <StepDetailPanel />
+      ) : (
+        <>
+          <ComponentActions />
 
-      <ComponentList
-        componentGroups={componentGroups}
-        templates={currentDomain?.templates}
-        searchQuery={searchQuery}
-        isLoading={isLoading}
-        openGroups={openGroups}
-        filteredGroups={filteredGroups}
-        activeItem={activeItem}
-        onSearchChange={setSearchQuery}
-        onAccordionChange={handleAccordionChange}
-      />
+          <ComponentList
+            componentGroups={componentGroups}
+            templates={currentDomain?.templates}
+            searchQuery={searchQuery}
+            isLoading={isLoading}
+            openGroups={openGroups}
+            filteredGroups={filteredGroups}
+            activeItem={activeItem}
+            onSearchChange={setSearchQuery}
+            onAccordionChange={handleAccordionChange}
+          />
+        </>
+      )}
       
       {/* Resize handle - on the left side for right sidebar */}
       {!isDragging && (
@@ -106,4 +119,4 @@ export function RightSidebar({
       )}
     </div>
   );
-} 
+}

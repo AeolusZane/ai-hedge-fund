@@ -6,12 +6,14 @@ import { useFlowContext } from '@/contexts/flow-context';
 import { useNodeContext } from '@/contexts/node-context';
 import { getModels, type LanguageModel } from '@/data/models';
 import { NodeOutputDialog } from '@/domains/bug-fix/node-output-dialog';
+import { useNodeOutput } from '@/domains/bug-fix/node-output-store';
+import { openStepDetail } from '@/domains/bug-fix/step-detail-context';
 import { useNodeState } from '@/hooks/use-node-state';
 import { cn } from '@/lib/utils';
-import type { NodeStatus } from '@/nodes/utils';
+import type { NodeRunInfo, NodeStatus } from '@/nodes/utils';
 import { type NodeProps } from '@xyflow/react';
 import { Eye, Wrench } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { BugFixStageNode } from '../types';
 import { getStatusColor } from '../utils';
 import { NodeShell } from './node-shell';
@@ -44,6 +46,73 @@ export function BugFixStageNode({
   const status: NodeStatus = liveStatus ?? (data.status as NodeStatus) ?? 'IDLE';
   const isInProgress = status === 'IN_PROGRESS';
 
+  // Subscribe to the shared node-output store for live observability
+  const nodeOutput = useNodeOutput();
+  const stream = nodeOutput.streamingByAgent[id] ?? '';
+  const progressItems = nodeOutput.progressByAgent[id] ?? [];
+
+  // Derive a one-line output summary from streaming or progress
+  const outputSummary = useMemo(() => {
+    if (status === 'ERROR') return 'Failed — check details';
+    if (status === 'COMPLETE') {
+      // Try to extract a meaningful summary from the result
+      const result = nodeOutput.result;
+      const slice = sliceFor(data.name, result);
+      if (slice) {
+        if (slice.error) return `Error: ${slice.error}`;
+        if (slice.root_cause) return slice.root_cause;
+        if (slice.patch_files) return `${slice.patch_files.length} files patched`;
+        if (slice.pr_url) return `PR opened`;
+        // Generic: truncate first key-value
+        const firstKey = Object.keys(slice)[0];
+        if (firstKey) {
+          const val = slice[firstKey];
+          const str = typeof val === 'string' ? val : JSON.stringify(val);
+          return str.length > 60 ? str.slice(0, 57) + '…' : str;
+        }
+      }
+      return 'Done';
+    }
+    // IN_PROGRESS: show last line of streaming (tail effect)
+    if (isInProgress && stream) {
+      const lines = stream.split('\n').filter(Boolean);
+      const last = lines[lines.length - 1] ?? '';
+      return last.length > 60 ? last.slice(0, 57) + '…' : last;
+    }
+    // IN_PROGRESS without streaming: show last progress status
+    if (isInProgress && progressItems.length > 0) {
+      const last = progressItems[progressItems.length - 1];
+      return last.status.length > 60 ? last.status.slice(0, 57) + '…' : last.status;
+    }
+    return undefined;
+  }, [status, stream, progressItems, nodeOutput.result, data.name, isInProgress]);
+
+  // Derive progress percentage from progress timeline
+  const progressPercent = useMemo(() => {
+    if (status === 'COMPLETE') return 100;
+    if (status === 'ERROR') return 100;
+    if (status === 'IDLE') return 0;
+    // Rough heuristic: each "Done" progress item = 33% for a 3-step stage
+    const doneCount = progressItems.filter(p => p.status === 'Done').length;
+    return Math.min(doneCount * 33, 99);
+  }, [status, progressItems]);
+
+  // Build NodeRunInfo from available data
+  const runInfo: NodeRunInfo | undefined = useMemo(() => {
+    if (status === 'IDLE') return undefined;
+    const startedAt = progressItems[0]?.ts;
+    const completedAt = status === 'COMPLETE' || status === 'ERROR'
+      ? progressItems[progressItems.length - 1]?.ts
+      : undefined;
+    return {
+      status,
+      progress: progressPercent,
+      startedAt,
+      completedAt,
+      outputSummary,
+    };
+  }, [status, progressPercent, progressItems, outputSummary]);
+
   const needsModel = STAGES_THAT_USE_AN_LLM.has(data.name);
   const needsRepoPath = STAGES_THAT_NEED_REPO_PATH.has(data.name);
   const needsPrConfig = STAGES_THAT_NEED_PR_CONFIG.has(data.name);
@@ -62,7 +131,6 @@ export function BugFixStageNode({
   const [targetBranch, setTargetBranch] = useNodeState<string>(id, 'targetBranch', 'main');
 
   const [outputOpen, setOutputOpen] = useState(false);
-
 
   useEffect(() => {
     if (!needsModel || models.length > 0) return;
@@ -116,6 +184,7 @@ export function BugFixStageNode({
       name={data.name}
       description={data.description}
       status={status}
+      runInfo={runInfo}
     >
       <CardContent
         className={cn(
@@ -123,10 +192,16 @@ export function BugFixStageNode({
           isInProgress && 'gradient-animation'
         )}
       >
-        <div className="flex items-center justify-between">
-          <span>Stage</span>
-          <span className={cn('font-mono', getStatusColor(status))}>{status}</span>
-        </div>
+        {/* Live streaming preview — shows last line while running */}
+        {isInProgress && stream && (
+          <div className="font-mono text-[11px] text-muted-foreground truncate border rounded-md px-2 py-1 bg-muted/30">
+            {(() => {
+              const lines = stream.split('\n').filter(Boolean);
+              return lines[lines.length - 1] ?? 'Processing…';
+            })()}
+            <span className="animate-pulse ml-1">▍</span>
+          </div>
+        )}
         <Button
           variant="outline"
           size="sm"
@@ -134,7 +209,7 @@ export function BugFixStageNode({
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
-            setOutputOpen(true);
+            openStepDetail(id, data.name);
           }}
         >
           <Eye className="h-3 w-3" /> View output
@@ -171,4 +246,21 @@ export function BugFixStageNode({
       </CardContent>
     </NodeShell>
   );
+}
+
+/** Extract the result slice for a given stage name — mirrors NodeOutputDialog. */
+function sliceFor(stageName: string, result: any): any {
+  if (!result || typeof result !== 'object') return null;
+  switch (stageName) {
+    case 'Jira Issue Input':
+      return result.jira ?? null;
+    case 'Analyze':
+      return result.analysis ?? (result.analyze_error ? { error: result.analyze_error } : null);
+    case 'Patch':
+      return result.patch ?? (result.patch_error ? { error: result.patch_error } : null);
+    case 'Open PR':
+      return result.open_pr ?? (result.open_pr_error ? { error: result.open_pr_error } : null);
+    default:
+      return null;
+  }
 }

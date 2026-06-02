@@ -1,6 +1,8 @@
 import { Card, CardHeader } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { elapsedSeconds, getStatusBg, getStatusColor, type NodeRunInfo, type NodeStatus } from '@/nodes/utils';
 import { Handle, Position } from '@xyflow/react';
+import { Loader2, Pause, CheckCircle2, XCircle } from 'lucide-react';
 import { ReactNode } from 'react';
 
 export interface NodeShellProps {
@@ -14,8 +16,25 @@ export interface NodeShellProps {
   children: ReactNode;
   hasLeftHandle?: boolean;
   hasRightHandle?: boolean;
-  status?: string;
+  status?: NodeStatus;
+  /** Rich run info — when provided, a status bar appears at the bottom. */
+  runInfo?: NodeRunInfo;
   width?: string;
+}
+
+function StatusIcon({ status }: { status: NodeStatus }) {
+  switch (status) {
+    case 'IN_PROGRESS':
+      return <Loader2 className="h-3 w-3 animate-spin" />;
+    case 'COMPLETE':
+      return <CheckCircle2 className="h-3 w-3" />;
+    case 'ERROR':
+      return <XCircle className="h-3 w-3" />;
+    case 'PAUSED':
+      return <Pause className="h-3 w-3" />;
+    default:
+      return null;
+  }
 }
 
 export function NodeShell({
@@ -30,9 +49,15 @@ export function NodeShell({
   hasLeftHandle = true,
   hasRightHandle = true,
   status = 'IDLE',
+  runInfo,
   width = 'w-64',
 }: NodeShellProps) {
   const isInProgress = status === 'IN_PROGRESS';
+  const isPaused = status === 'PAUSED';
+  const showStatusBar = status !== 'IDLE' && runInfo;
+  const elapsed = runInfo ? elapsedSeconds(runInfo) : null;
+  const progress = runInfo?.progress ?? 0;
+
   return (
     <div
       className={cn(
@@ -40,7 +65,9 @@ export function NodeShell({
         width,
         !selected && "hover:border-node-hover hover:shadow-lg",
         selected && "border-node-selected shadow-xl",
-        isInProgress && "node-in-progress"
+        isInProgress && "node-in-progress",
+        isPaused && "node-in-progress",
+        status === 'ERROR' && "border-red-400 dark:border-red-600",
       )}
       data-id={id}
       data-nodeid={id}
@@ -68,6 +95,12 @@ export function NodeShell({
             <div className="text-title font-semibold text-primary">
               {name || "Custom Component"}
             </div>
+            {showStatusBar && (
+              <div className={cn("ml-auto flex items-center gap-1 text-[10px] font-medium", getStatusColor(status))}>
+                <StatusIcon status={status} />
+                {elapsed !== null && `${elapsed}s`}
+              </div>
+            )}
           </CardHeader>
           {description && (
             <div className="px-3 py-2 text-subtitle text-primary text-left">
@@ -75,6 +108,43 @@ export function NodeShell({
             </div>
           )}
           {children}
+          {/* Status bar at the bottom of the node */}
+          {showStatusBar && (
+            <div className="border-t border-node">
+              {/* Thin progress bar */}
+              {(isInProgress || isPaused) && (
+                <div className="h-1 bg-muted overflow-hidden">
+                  <div
+                    className={cn(
+                      "h-full transition-all duration-500",
+                      getStatusBg(status),
+                      isPaused && "animate-pulse"
+                    )}
+                    style={{ width: `${Math.max(progress, 8)}%` }}
+                  />
+                </div>
+              )}
+              {status === 'COMPLETE' && (
+                <div className="h-1 bg-muted overflow-hidden">
+                  <div className={cn("h-full", getStatusBg(status))} style={{ width: '100%' }} />
+                </div>
+              )}
+              {status === 'ERROR' && (
+                <div className="h-1 bg-muted overflow-hidden">
+                  <div className={cn("h-full", getStatusBg(status))} style={{ width: '100%' }} />
+                </div>
+              )}
+              {/* Output summary line */}
+              {runInfo?.outputSummary && (
+                <div className={cn(
+                  "px-3 py-1.5 text-[11px] truncate",
+                  getStatusColor(status)
+                )}>
+                  {runInfo.outputSummary}
+                </div>
+              )}
+            </div>
+          )}
         </Card>
       </div>
       {hasRightHandle && (
@@ -87,4 +157,4 @@ export function NodeShell({
       )}
     </div>
   );
-} 
+}
