@@ -381,19 +381,40 @@ class BugFixExecutor(WorkflowExecutor):
         # Fallback: read git remote URL from the local repo to auto-detect
         # project/repo. This avoids requiring the user to manually fill in
         # the Open PR node's repoUrl field when Patch already has repoPath.
+        #
+        # Remote priority: prefer `upstream` over `origin`. In a standard
+        # fork workflow, `origin` is the user's fork and `upstream` is the
+        # main repo — PRs should target the main repo. If the user cloned
+        # directly (no fork), `upstream` won't exist and we fall back to
+        # `origin`.
         if (not project or not repo) and state.get("repo_path"):
             try:
                 import subprocess
-                remote_url = subprocess.check_output(
-                    ["git", "remote", "get-url", "origin"],
+                remotes = subprocess.check_output(
+                    ["git", "remote"],
                     cwd=state["repo_path"],
                     stderr=subprocess.DEVNULL,
                     timeout=5,
-                ).decode().strip()
-                if remote_url:
-                    parsed_project, parsed_repo = _parse_repo_url(remote_url)
-                    project = project or parsed_project
-                    repo = repo or parsed_repo
+                ).decode().strip().splitlines()
+                # Pick the best remote: upstream > origin > first available
+                chosen = None
+                for preferred in ("upstream", "origin"):
+                    if preferred in remotes:
+                        chosen = preferred
+                        break
+                if not chosen and remotes:
+                    chosen = remotes[0]
+                if chosen:
+                    remote_url = subprocess.check_output(
+                        ["git", "remote", "get-url", chosen],
+                        cwd=state["repo_path"],
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    ).decode().strip()
+                    if remote_url:
+                        parsed_project, parsed_repo = _parse_repo_url(remote_url)
+                        project = project or parsed_project
+                        repo = repo or parsed_repo
             except Exception:
                 pass  # git not available or not a git repo — fall through
 
