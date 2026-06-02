@@ -137,7 +137,21 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
   }, []);
 
   const startRun = useCallback(async () => {
-    const trimmed = effectiveIssueKey.trim();
+    // Always read the canvas Jira Issue Input at submit time —
+    // `canvasIssueKey` memo gates on `open`, so a run triggered from
+    // the canvas while the dialog is closed would otherwise see an
+    // empty effectiveIssueKey and bail out silently.
+    const liveCanvasNode = reactFlow
+      .getNodes()
+      .find((n) => n.type === 'jira-issue-input-node');
+    const liveCanvasKey = liveCanvasNode
+      ? getNodeInternalState(liveCanvasNode.id)?.issueKey
+      : undefined;
+    const effective =
+      typeof liveCanvasKey === 'string' && liveCanvasKey.trim()
+        ? liveCanvasKey
+        : issueKey;
+    const trimmed = effective.trim();
     if (!trimmed) return;
     reset();
     setPhase('running');
@@ -242,7 +256,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     } finally {
       abortRef.current = null;
     }
-  }, [effectiveIssueKey, reset, reactFlow]);
+  }, [issueKey, reset, reactFlow]);
 
   const handleEvent = (data: any) => {
     if (!data || typeof data !== 'object') return;
