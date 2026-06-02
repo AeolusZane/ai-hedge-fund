@@ -214,7 +214,11 @@ async def run_patch(
     repo = _validate_repo(repo_path)
     claude = _claude_binary()
     issue_key = (jira_detail.get("key") or "bug").strip()
-    fix_branch = f"fix/{issue_key.lower()}"
+    
+    # Add timestamp suffix to avoid branch name conflicts
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%y%m%d-%H%M")
+    fix_branch = f"fix/{issue_key.lower()}-{timestamp}"
 
     # ── Branch setup ──────────────────────────────────────────────
     # Fetch latest so we branch from an up-to-date base.
