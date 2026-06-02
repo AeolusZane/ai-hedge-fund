@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any, Awaitable, Callable, Optional
 
 from src.llm.models import ModelProvider, get_model
@@ -31,15 +32,58 @@ class AnalyzeConfigError(RuntimeError):
     """Raised when the chosen provider's credentials are missing."""
 
 
+def _strip_image_refs(text: str) -> str:
+    """Remove Jira image attachment references from text."""
+    text = re.sub(r'![^!]+\.(png|jpg|jpeg|gif|bmp|svg|webp)(\|[^!]*)?!', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\[\^[^\]]+\]', '', text)
+    return text.strip()
+
+
+def _extract_comments(jira: dict[str, Any]) -> list[dict[str, str]]:
+    """Extract comments from Jira detail (handles both raw and flattened formats)."""
+    # Raw Jira API: fields.comment.comments[]
+    comments_raw = (
+        jira.get("comment", {}).get("comments", [])
+        if isinstance(jira.get("comment"), dict)
+        else []
+    )
+    # Flattened format: jira["comments"] = [...]
+    if not comments_raw and isinstance(jira.get("comments"), list):
+        comments_raw = jira["comments"]
+
+    result = []
+    for c in comments_raw:
+        if not isinstance(c, dict):
+            continue
+        author = ""
+        if isinstance(c.get("author"), dict):
+            author = c["author"].get("displayName", "")
+        elif isinstance(c.get("author"), str):
+            author = c["author"]
+        body = c.get("body", "") or ""
+        updated = c.get("updated", "") or c.get("created", "")
+        if body.strip():
+            result.append({"author": author, "body": _strip_image_refs(body.strip()), "updated": updated})
+    return result
+
+
 def _build_prompt(jira: dict[str, Any]) -> str:
     summary = jira.get("summary") or "(no summary)"
     description = (jira.get("description") or "(no description)")[:4000]
-    comments = jira.get("comments") or []
+    comments = _extract_comments(jira)
     recent = comments[-_MAX_COMMENTS:]
     comment_block = "\n".join(
         f"- [{c.get('updated','')}] {c.get('author','?')}: {c.get('body','')[:400]}"
         for c in recent
     ) or "(no comments)"
+
+    # Extract components (handle both raw and flattened formats)
+    components = []
+    for c in (jira.get("components") or []):
+        if isinstance(c, dict):
+            components.append(c.get("name", ""))
+        elif isinstance(c, str):
+            components.append(c)
 
     return (
         "You are a senior engineer triaging a bug. Read the Jira context and"
@@ -52,7 +96,7 @@ def _build_prompt(jira: dict[str, Any]) -> str:
         f"Summary: {summary}\n"
         f"Status: {jira.get('status','')}\n"
         f"Priority: {jira.get('priority','')}\n"
-        f"Components: {', '.join(jira.get('components') or []) or '(none)'}\n"
+        f"Components: {', '.join(components) or '(none)'}\n"
         f"\nDescription:\n{description}\n"
         f"\nRecent comments:\n{comment_block}\n"
     )

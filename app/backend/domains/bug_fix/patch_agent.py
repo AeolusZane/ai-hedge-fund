@@ -57,22 +57,60 @@ async def _run(
     return proc.returncode or 0, out_b.decode(errors="replace"), err_b.decode(errors="replace")
 
 
-def _has_actionable_description(description: str) -> bool:
-    """Check if the Jira description contains actionable text beyond image refs.
-
-    Jira image attachments look like `!image-2024-11-08-14-11-30-432.png!`.
-    If the description is *only* image references (and whitespace), the model
-    has no text to work from and will waste turns exploring the repo blindly.
-    """
-    # Strip Jira image attachment references: !filename.ext!
-    stripped = re.sub(r'![^!]+\.(png|jpg|jpeg|gif|bmp|svg|webp)!', '', description, flags=re.IGNORECASE)
+def _strip_image_refs(text: str) -> str:
+    """Remove Jira image attachment references from text."""
+    # Strip !filename.ext! and !filename.ext|width=...,height=...!
+    text = re.sub(r'![^!]+\.(png|jpg|jpeg|gif|bmp|svg|webp)(\|[^!]*)?!', '', text, flags=re.IGNORECASE)
     # Strip Jira attachment macros: [^filename.ext]
-    stripped = re.sub(r'\[\^[^\]]+\]', '', stripped)
-    # Strip whitespace
-    stripped = stripped.strip()
-    # Need at least 4 chars of real text to be actionable
-    # (lowered from 10 to accommodate concise Chinese descriptions)
-    return len(stripped) >= 4
+    text = re.sub(r'\[\^[^\]]+\]', '', text)
+    return text.strip()
+
+
+def _has_actionable_text(text: str) -> bool:
+    """Check if text contains at least 4 chars of real content after stripping image refs."""
+    return len(_strip_image_refs(text)) >= 4
+
+
+def _extract_comments(jira: dict[str, Any]) -> list[dict[str, str]]:
+    """Extract comments from Jira detail (handles both raw and flattened formats)."""
+    # Raw Jira API: fields.comment.comments[]
+    comments_raw = (
+        jira.get("comment", {}).get("comments", [])
+        if isinstance(jira.get("comment"), dict)
+        else []
+    )
+    # Flattened format: jira["comments"] = [...]
+    if not comments_raw and isinstance(jira.get("comments"), list):
+        comments_raw = jira["comments"]
+
+    result = []
+    for c in comments_raw:
+        if not isinstance(c, dict):
+            continue
+        author = ""
+        if isinstance(c.get("author"), dict):
+            author = c["author"].get("displayName", "")
+        elif isinstance(c.get("author"), str):
+            author = c["author"]
+        body = c.get("body", "") or ""
+        created = c.get("created", "")
+        if body.strip():
+            result.append({"author": author, "body": body.strip(), "created": created})
+    return result
+
+
+def _extract_attachments(jira: dict[str, Any]) -> list[str]:
+    """Extract attachment filenames from Jira detail."""
+    attachments_raw = jira.get("attachment", [])
+    if not isinstance(attachments_raw, list):
+        return []
+    names = []
+    for a in attachments_raw:
+        if isinstance(a, dict) and a.get("filename"):
+            names.append(a["filename"])
+        elif isinstance(a, str):
+            names.append(a)
+    return names
 
 
 def _build_prompt(jira: dict[str, Any], analysis: dict[str, Any] | None) -> str:
@@ -87,6 +125,40 @@ def _build_prompt(jira: dict[str, Any], analysis: dict[str, Any] | None) -> str:
         description,
         "",
     ]
+
+    # Comments — often contain reproduction steps, fix instructions, or clarifications
+    comments = _extract_comments(jira)
+    if comments:
+        parts.append("Jira comments (most recent last, may contain fix instructions):")
+        # Take last 10 comments, cap each at 500 chars
+        for c in comments[-10:]:
+            author = c["author"] or "unknown"
+            body = _strip_image_refs(c["body"])[:500]
+            if body:
+                parts.append(f"  [{author}]: {body}")
+        parts.append("")
+
+    # Attachments — let the model know what images exist even if it can't read them
+    attachments = _extract_attachments(jira)
+    if attachments:
+        parts.append(f"Attachments (images you cannot view): {', '.join(attachments)}")
+        parts.append("")
+
+    # Labels and components — help the model locate the right module
+    labels = jira.get("labels") or []
+    components = []
+    for c in (jira.get("components") or []):
+        if isinstance(c, dict):
+            components.append(c.get("name", ""))
+        elif isinstance(c, str):
+            components.append(c)
+    if labels:
+        parts.append(f"Labels: {', '.join(labels)}")
+    if components:
+        parts.append(f"Components: {', '.join(components)}")
+    if labels or components:
+        parts.append("")
+
     if analysis:
         parts.extend(
             [
@@ -136,10 +208,13 @@ async def run_patch(
     repo = _validate_repo(repo_path)
     claude = _claude_binary()
 
-    # Pre-flight: if the Jira description is image-only (no actionable text),
-    # skip the CLI call entirely — the model would just waste turns exploring.
+    # Pre-flight: check if the Jira issue has ANY actionable text across
+    # description + comments. If everything is image-only, skip the CLI call.
     raw_description = jira_detail.get("description") or ""
-    if not _has_actionable_description(raw_description) and not analysis:
+    comments = _extract_comments(jira_detail)
+    has_text_in_description = _has_actionable_text(raw_description)
+    has_text_in_comments = any(_has_actionable_text(c["body"]) for c in comments)
+    if not has_text_in_description and not has_text_in_comments and not analysis:
         return {
             "status": "blocked",
             "claude_output": "",
@@ -147,11 +222,11 @@ async def run_patch(
             "diff": "",
             "diff_truncated": False,
             "blocker_reason": (
-                "Jira description contains only image attachments with no actionable text. "
-                "Claude Code cannot read Jira image attachments."
+                "Jira issue contains only image attachments with no actionable text "
+                "in description or comments. Claude Code cannot read Jira image attachments."
             ),
             "blocker_next_step": (
-                "Add a text description to the Jira issue explaining the bug, "
+                "Add a text description or comment to the Jira issue explaining the bug, "
                 "or ensure the Analyze stage produces a hypothesis with target files."
             ),
         }
