@@ -58,13 +58,19 @@ def _parse_repo_url(url: str) -> tuple[str, str]:
       - https://bitbucket.example.com/projects/PROJ/repos/my-repo
       - https://bitbucket.example.com/projects/PROJ/repos/my-repo/browse
       - /projects/PROJ/repos/my-repo
+      - git@bitbucket.example.com:PROJ/my-repo.git  (SSH)
+      - ssh://git@bitbucket.example.com/PROJ/my-repo.git
 
     Returns:
         Tuple of (project, repo). Empty strings if parsing fails.
     """
     import re
-    # Match /projects/<project>/repos/<repo> pattern
+    # Match /projects/<project>/repos/<repo> pattern (HTTP/HTTPS)
     match = re.search(r"/projects/([^/]+)/repos/([^/]+)", url)
+    if match:
+        return match.group(1), match.group(2)
+    # Match SSH format: git@host:PROJ/repo.git or ssh://git@host/PROJ/repo.git
+    match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?$", url)
     if match:
         return match.group(1), match.group(2)
     return "", ""
@@ -371,6 +377,25 @@ class BugFixExecutor(WorkflowExecutor):
             parsed_project, parsed_repo = _parse_repo_url(repo_url)
             project = project or parsed_project
             repo = repo or parsed_repo
+
+        # Fallback: read git remote URL from the local repo to auto-detect
+        # project/repo. This avoids requiring the user to manually fill in
+        # the Open PR node's repoUrl field when Patch already has repoPath.
+        if (not project or not repo) and state.get("repo_path"):
+            try:
+                import subprocess
+                remote_url = subprocess.check_output(
+                    ["git", "remote", "get-url", "origin"],
+                    cwd=state["repo_path"],
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                ).decode().strip()
+                if remote_url:
+                    parsed_project, parsed_repo = _parse_repo_url(remote_url)
+                    project = project or parsed_project
+                    repo = repo or parsed_repo
+            except Exception:
+                pass  # git not available or not a git repo — fall through
 
         target_branch = (
             str(node_data.get("targetBranch") or "").strip()
