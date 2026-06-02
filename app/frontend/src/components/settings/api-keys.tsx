@@ -13,16 +13,6 @@ interface ApiKey {
   placeholder: string;
 }
 
-const FINANCIAL_API_KEYS: ApiKey[] = [
-  {
-    key: 'FINANCIAL_DATASETS_API_KEY',
-    label: 'Financial Datasets API',
-    description: 'For getting financial data to power the hedge fund',
-    url: 'https://financialdatasets.ai/',
-    placeholder: 'your-financial-datasets-api-key'
-  }
-];
-
 const LLM_API_KEYS: ApiKey[] = [
   {
     key: 'ANTHROPIC_API_KEY',
@@ -252,7 +242,7 @@ export function ApiKeysSettings() {
       <div>
         <h2 className="text-xl font-semibold text-primary mb-2">API Keys</h2>
         <p className="text-sm text-muted-foreground">
-          Configure API endpoints and authentication credentials for financial data and language models.
+          Configure API keys for language model providers.
           Changes are automatically saved.
         </p>
       </div>
@@ -281,14 +271,6 @@ export function ApiKeysSettings() {
             </div>
           </CardContent>
         </Card>
-      )}
-
-      {/* Financial Data API Keys */}
-      {renderApiKeySection(
-        'Financial Data',
-        'API keys for accessing financial market data and datasets.',
-        FINANCIAL_API_KEYS,
-        <Key className="h-4 w-4" />
       )}
 
       {/* LLM API Keys */}
