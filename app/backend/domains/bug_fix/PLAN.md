@@ -149,6 +149,19 @@ override works because:
   explicit `base_url` / `anthropic_api_url`, so the underlying
   `anthropic.Anthropic` client reads `ANTHROPIC_BASE_URL` from env.
 
+When routing through such a proxy the `claude` CLI also needs the
+family-alias → real-model mapping:
+
+```
+ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-pro
+ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro
+ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-pro
+```
+
+Without these the CLI hands the proxy ids like `claude-sonnet-4-6`
+that the upstream provider won't recognise. The Analyze stage isn't
+affected — it picks the model id explicitly on each node.
+
 If we ever decide to support per-stage base URLs, the place to plumb
 them in is `node_data` (consumed by `_do_patch` / `_do_analyze`), not
 a global flag.
