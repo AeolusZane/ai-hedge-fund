@@ -255,14 +255,26 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
         }
       }
 
-      setPhase((cur) => (cur === 'running' ? 'complete' : cur));
+      // Safety net: if the stream ended without a complete/error event,
+      // ensure the run is finished in history.
+      setPhase((cur) => {
+        if (cur === 'running') {
+          historyFinishRun('complete');
+          setRunPhase('complete');
+          return 'complete';
+        }
+        return cur;
+      });
     } catch (e: any) {
       if (e?.name === 'AbortError') {
         setPhase('idle');
+        historyFinishRun('error');
         return;
       }
       setError(e?.message ?? 'Run failed');
       setPhase('error');
+      setRunPhase('error');
+      historyFinishRun('error');
     } finally {
       abortRef.current = null;
     }
@@ -311,9 +323,15 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
     } else if (data.type === 'complete') {
       setResult(data.data);
       storeSetResult(data.data);
-      setPhase('complete');
-      setRunPhase('complete');
-      historyFinishRun('complete');
+      // Check if any stage recorded an error — the executor catches
+      // stage errors internally and returns normally, but the run
+      // should still be marked as 'error' in history.
+      const hasStageError = data.data && typeof data.data === 'object' &&
+        Object.keys(data.data).some(k => k.endsWith('_error') && data.data[k]);
+      const finalPhase = hasStageError ? 'error' : 'complete';
+      setPhase(finalPhase);
+      setRunPhase(finalPhase);
+      historyFinishRun(finalPhase);
     } else if (data.type === 'error') {
       setError(data.message ?? 'Run failed');
       setPhase('error');
