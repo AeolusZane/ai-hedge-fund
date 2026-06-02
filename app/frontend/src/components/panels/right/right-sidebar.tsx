@@ -19,6 +19,7 @@ interface RightSidebarProps {
 
 export function RightSidebar({
   isCollapsed,
+  onExpand,
   onWidthChange,
 }: RightSidebarProps) {
   // Use our custom hooks
@@ -37,6 +38,13 @@ export function RightSidebar({
   // Step detail target — when set, sidebar switches to detail mode
   const stepDetailTarget = useStepDetailTarget();
   const isDetailMode = stepDetailTarget !== null;
+
+  // Auto-expand sidebar when a step detail is opened
+  useEffect(() => {
+    if (stepDetailTarget && isCollapsed) {
+      onExpand?.();
+    }
+  }, [stepDetailTarget, isCollapsed, onExpand]);
   
   // The active domain decides which palette groups appear. Switching domain
   // re-runs the loader.
