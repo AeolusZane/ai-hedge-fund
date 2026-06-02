@@ -6,16 +6,34 @@
  *
  * We also expose a phase store so the node can flip its Play to Stop
  * while a run is in flight without owning that state itself.
+ *
+ * Phase is persisted to localStorage so canvas nodes can recover their
+ * visual state after a page refresh.
  */
 import { useSyncExternalStore } from 'react';
 
 export type RunPhase = 'idle' | 'running' | 'complete' | 'error';
 
+const PHASE_STORAGE_KEY = 'bugfix-run-phase';
+
 let triggerFn: (() => void) | null = null;
 let stopFn: (() => void) | null = null;
 let dialogOpenerFn: (() => void) | null = null;
 
-let phase: RunPhase = 'idle';
+// Hydrate phase from localStorage on module init
+function hydratePhase(): RunPhase {
+  try {
+    const stored = localStorage.getItem(PHASE_STORAGE_KEY);
+    if (stored === 'running' || stored === 'complete' || stored === 'error' || stored === 'idle') {
+      return stored;
+    }
+  } catch {
+    // localStorage unavailable
+  }
+  return 'idle';
+}
+
+let phase: RunPhase = hydratePhase();
 const phaseListeners = new Set<() => void>();
 
 export function registerRunTrigger(fn: () => void): () => void {
@@ -56,6 +74,11 @@ export function openRunDialog(): void {
 export function setRunPhase(next: RunPhase): void {
   if (phase === next) return;
   phase = next;
+  try {
+    localStorage.setItem(PHASE_STORAGE_KEY, next);
+  } catch {
+    // localStorage unavailable
+  }
   phaseListeners.forEach((fn) => fn());
 }
 

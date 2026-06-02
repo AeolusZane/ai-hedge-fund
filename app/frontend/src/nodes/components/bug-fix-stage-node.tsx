@@ -45,13 +45,17 @@ export function BugFixStageNode({
   const { getAgentNodeDataForFlow } = useNodeContext();
   const agentNodeData = getAgentNodeDataForFlow(currentFlowId?.toString() || null);
   const liveStatus = agentNodeData[id]?.status as NodeStatus | undefined;
-  const status: NodeStatus = liveStatus ?? (data.status as NodeStatus) ?? 'IDLE';
-  const isInProgress = status === 'IN_PROGRESS';
 
-  // Subscribe to the shared node-output store for live observability
+  // Subscribe to the shared node-output store for live observability.
+  // This store is persisted to localStorage, so it survives page refreshes.
   const nodeOutput = useNodeOutput();
   const stream = nodeOutput.streamingByAgent[id] ?? '';
   const progressItems = nodeOutput.progressByAgent[id] ?? [];
+
+  // Derive status: prefer live SSE status; fall back to persisted progress
+  // data so canvas nodes recover their visual state after a page refresh.
+  const status: NodeStatus = liveStatus ?? deriveStatusFromProgress(progressItems, nodeOutput.phase) ?? (data.status as NodeStatus) ?? 'IDLE';
+  const isInProgress = status === 'IN_PROGRESS';
 
   // Derive a one-line output summary from streaming or progress
   const outputSummary = useMemo(() => {
@@ -272,4 +276,27 @@ function sliceFor(stageName: string, result: any): any {
     default:
       return null;
   }
+}
+
+/**
+ * Derive a NodeStatus from persisted progress data.
+ *
+ * When the page is refreshed, the live SSE-driven `agentNodeData` is lost
+ * (it's pure React state). But `node-output-store` persists progress items
+ * to localStorage. This function reconstructs the node's visual status
+ * from that persisted timeline so the canvas doesn't reset to all-IDLE.
+ */
+function deriveStatusFromProgress(
+  progressItems: { status: string; ts: number }[],
+  phase: string,
+): NodeStatus | null {
+  if (progressItems.length === 0) return null;
+  const last = progressItems[progressItems.length - 1];
+  if (last.status === 'Done') return 'COMPLETE';
+  if (last.status === 'Error') return 'ERROR';
+  // Has progress but not done — if the run is still active, show IN_PROGRESS
+  if (phase === 'running') return 'IN_PROGRESS';
+  // Run finished but this stage didn't record "Done" — likely errored or skipped
+  if (phase === 'complete' || phase === 'error') return 'COMPLETE';
+  return null;
 }

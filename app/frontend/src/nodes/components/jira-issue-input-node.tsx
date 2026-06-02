@@ -3,6 +3,7 @@ import { CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useFlowContext } from '@/contexts/flow-context';
 import { useNodeContext } from '@/contexts/node-context';
+import { useNodeOutput } from '@/domains/bug-fix/node-output-store';
 import {
   requestRun,
   requestStop,
@@ -43,7 +44,14 @@ export function JiraIssueInputNode({
   const { currentFlowId } = useFlowContext();
   const { getAgentNodeDataForFlow } = useNodeContext();
   const agentNodeData = getAgentNodeDataForFlow(currentFlowId?.toString() || null);
-  const status: NodeStatus = (agentNodeData[id]?.status as NodeStatus) ?? 'IDLE';
+  const liveStatus = agentNodeData[id]?.status as NodeStatus | undefined;
+
+  // Recover status from persisted progress data after page refresh
+  const nodeOutput = useNodeOutput();
+  const progressItems = nodeOutput.progressByAgent[id] ?? [];
+  const persistedStatus = deriveStatusFromProgress(progressItems, nodeOutput.phase);
+
+  const status: NodeStatus = liveStatus ?? persistedStatus ?? 'IDLE';
   const isInProgress = status === 'IN_PROGRESS';
 
   return (
@@ -108,4 +116,21 @@ export function JiraIssueInputNode({
       </CardContent>
     </NodeShell>
   );
+}
+
+/**
+ * Derive a NodeStatus from persisted progress data.
+ * See bug-fix-stage-node.tsx for the same helper with full docs.
+ */
+function deriveStatusFromProgress(
+  progressItems: { status: string; ts: number }[],
+  phase: string,
+): NodeStatus | null {
+  if (progressItems.length === 0) return null;
+  const last = progressItems[progressItems.length - 1];
+  if (last.status === 'Done') return 'COMPLETE';
+  if (last.status === 'Error') return 'ERROR';
+  if (phase === 'running') return 'IN_PROGRESS';
+  if (phase === 'complete' || phase === 'error') return 'COMPLETE';
+  return null;
 }
