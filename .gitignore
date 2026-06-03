@@ -73,3 +73,6 @@ app/backend/alembic/versions/__pycache__/.env.test
 
 # Local dev runtime — pids, logs from scripts/dev.sh
 .dev/
+
+# Workspace — cloned repos and run artifacts
+workspace/

@@ -1,7 +1,7 @@
 """Workspace Manager — isolated working directories for pipeline runs.
 
 Each pipeline run gets its own directory under WORKSPACE_ROOT/{run_id}/.
-Default root: <tmp>/ai-workflow-studio/workspace (override via WORKSPACE_ROOT env var).
+Default root: ./workspace (relative to the current working directory).
 Repos are cloned here, patches applied, tests run — all isolated from
 the host filesystem and other runs.
 """
@@ -10,14 +10,13 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 
 # Base directory for workspaces.
-# Default: <system-tmp>/ai-workflow-studio/workspace (e.g. /tmp/... on macOS/Linux).
+# Default: ./workspace (relative to the current working directory).
 # Override with WORKSPACE_ROOT env var for Docker / production deployments.
-_default_root = Path(tempfile.gettempdir()) / "ai-workflow-studio" / "workspace"
+_default_root = Path.cwd() / "workspace"
 WORKSPACE_ROOT = Path(os.environ.get("WORKSPACE_ROOT", str(_default_root)))
 
 
