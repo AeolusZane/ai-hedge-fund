@@ -69,14 +69,18 @@ app.add_middleware(
 app.include_router(api_router)
 
 # Serve frontend static files (SPA fallback)
-frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
+frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
 if frontend_dist.exists():
     app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="static-assets")
     
-    @app.get("/bug-fix")
-    @app.get("/")
-    async def serve_spa():
-        """Serve index.html for SPA routes"""
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve index.html for all SPA routes"""
+        # If the requested file exists in dist, serve it directly
+        file_path = frontend_dist / full_path
+        if full_path and file_path.is_file():
+            return FileResponse(file_path)
+        # Otherwise serve index.html for client-side routing
         return FileResponse(frontend_dist / "index.html")
 
 @app.on_event("startup")
