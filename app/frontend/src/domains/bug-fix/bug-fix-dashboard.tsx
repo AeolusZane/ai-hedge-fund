@@ -223,7 +223,7 @@ export function BugFixDashboard() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <a
-                            href={`https://jira.fineres.com/browse/${bug.key}`}
+                            href={`https://work.fineres.com/browse/${bug.key}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="font-mono text-xs text-blue-600 hover:underline flex items-center gap-0.5"
