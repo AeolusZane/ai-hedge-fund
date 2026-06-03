@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, AsyncGenerator
 import logging
 import signal
-import ollama
+
+try:
+    import ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    ollama = None
+    OLLAMA_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +29,14 @@ class OllamaService:
         self._download_progress = {}
         self._download_processes = {}
         
-        # Initialize async client
-        self._async_client = ollama.AsyncClient()
-        self._sync_client = ollama.Client()
+        # Initialize async client only if ollama is available
+        if OLLAMA_AVAILABLE:
+            self._async_client = ollama.AsyncClient()
+            self._sync_client = ollama.Client()
+        else:
+            self._async_client = None
+            self._sync_client = None
+            logger.warning("ollama package not installed, Ollama features will be disabled")
     
     # =============================================================================
     # PUBLIC API METHODS
@@ -33,6 +44,16 @@ class OllamaService:
     
     async def check_ollama_status(self) -> Dict[str, any]:
         """Check Ollama installation and server status."""
+        if not OLLAMA_AVAILABLE:
+            return {
+                "installed": False,
+                "running": False,
+                "server_running": False,
+                "available_models": [],
+                "server_url": None,
+                "error": "ollama Python package not installed. Run: pip install ollama"
+            }
+        
         try:
             is_installed = await self._check_installation()
             is_running = await self._check_server_running()
