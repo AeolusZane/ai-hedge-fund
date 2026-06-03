@@ -202,3 +202,153 @@ async def create_pr(
         "to_branch": to_branch,
         "raw": data,
     }
+
+
+async def list_pull_requests(
+    *,
+    project: str,
+    repo: str,
+    state: str = "MERGED",
+    limit: int = 25,
+    start: int = 0,
+) -> dict[str, Any]:
+    """List pull requests from Bitbucket Server REST API.
+
+    Args:
+        project: Bitbucket project key
+        repo: Repository slug
+        state: PR state filter (OPEN, DECLINED, MERGED, ALL)
+        limit: Max results per page (max 100)
+        start: Pagination offset
+
+    Returns:
+        Dict with 'values' (list of PRs), 'isLastPage', 'nextPageStart'
+    """
+    base_url, token, _ = _get_bitbucket_config()
+    url = f"{base_url}/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+    params = {
+        "state": state,
+        "limit": min(limit, 100),
+        "start": start,
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.get(url, headers=headers, params=params)
+        except httpx.RequestError as e:
+            raise BitbucketMcpToolError(f"Bitbucket API request failed: {e}") from e
+
+        if response.status_code == 401:
+            raise BitbucketMcpToolError("Bitbucket API authentication failed (401)")
+        if response.status_code not in (200, 201):
+            raise BitbucketMcpToolError(
+                f"Bitbucket API error {response.status_code}: {response.text[:500]}"
+            )
+
+        try:
+            return response.json()
+        except Exception as e:
+            raise BitbucketMcpToolError(f"Failed to parse Bitbucket response: {e}") from e
+
+
+async def get_pr_activities(
+    *,
+    project: str,
+    repo: str,
+    pr_id: int,
+) -> list[dict[str, Any]]:
+    """Get PR activities (comments, reviews) from Bitbucket.
+
+    Args:
+        project: Bitbucket project key
+        repo: Repository slug
+        pr_id: Pull request ID
+
+    Returns:
+        List of activity items (comments, approvals, etc.)
+    """
+    base_url, token, _ = _get_bitbucket_config()
+    url = f"{base_url}/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{pr_id}/activities"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+    all_activities = []
+    start = 0
+    limit = 100
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        while True:
+            params = {"start": start, "limit": limit}
+            try:
+                response = await client.get(url, headers=headers, params=params)
+            except httpx.RequestError as e:
+                raise BitbucketMcpToolError(f"Bitbucket API request failed: {e}") from e
+
+            if response.status_code == 401:
+                raise BitbucketMcpToolError("Bitbucket API authentication failed (401)")
+            if response.status_code not in (200, 201):
+                raise BitbucketMcpToolError(
+                    f"Bitbucket API error {response.status_code}: {response.text[:500]}"
+                )
+
+            try:
+                data = response.json()
+            except Exception as e:
+                raise BitbucketMcpToolError(f"Failed to parse Bitbucket response: {e}") from e
+
+            values = data.get("values", [])
+            all_activities.extend(values)
+
+            if data.get("isLastPage", True):
+                break
+            start = data.get("nextPageStart", start + limit)
+
+    return all_activities
+
+
+async def get_pr_diff(
+    *,
+    project: str,
+    repo: str,
+    pr_id: int,
+) -> str:
+    """Get the unified diff for a pull request.
+
+    Args:
+        project: Bitbucket project key
+        repo: Repository slug
+        pr_id: Pull request ID
+
+    Returns:
+        Unified diff as text
+    """
+    base_url, token, _ = _get_bitbucket_config()
+    url = f"{base_url}/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{pr_id}/diff"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "text/plain",
+    }
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            response = await client.get(url, headers=headers)
+        except httpx.RequestError as e:
+            raise BitbucketMcpToolError(f"Bitbucket API request failed: {e}") from e
+
+        if response.status_code == 401:
+            raise BitbucketMcpToolError("Bitbucket API authentication failed (401)")
+        if response.status_code not in (200, 201):
+            raise BitbucketMcpToolError(
+                f"Bitbucket API error {response.status_code}: {response.text[:500]}"
+            )
+
+        return response.text

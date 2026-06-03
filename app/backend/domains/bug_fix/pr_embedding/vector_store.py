@@ -9,7 +9,7 @@ import math
 import sqlite3
 import struct
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from app.backend.domains.bug_fix.pr_embedding.tokenizer import tokenize
 
@@ -230,6 +230,28 @@ class VectorStore:
             f"SELECT * FROM {self.docs_table} WHERE id = ?", (doc_id,)
         ).fetchone()
         return dict(row) if row else None
+
+    def upsert_doc(
+        self,
+        doc_id: str,
+        document: str,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Insert or update a document. Does NOT rebuild vectors — call build_vectors() after batch."""
+        conn = self._connect()
+        meta = metadata or {}
+
+        # Build column list and values
+        cols = ["id", "document"] + list(meta.keys())
+        placeholders = ", ".join(["?"] * len(cols))
+        values = [doc_id, document] + list(meta.values())
+
+        # Use INSERT OR REPLACE for upsert
+        conn.execute(
+            f"INSERT OR REPLACE INTO {self.docs_table} ({', '.join(cols)}) VALUES ({placeholders})",
+            values,
+        )
+        conn.commit()
 
     def get_docs(self, doc_ids: list[str]) -> list[dict]:
         """Get multiple documents by ID, preserving order."""
