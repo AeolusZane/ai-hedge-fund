@@ -74,18 +74,23 @@ export function StepDetailPanel() {
     console.log('Retry requested for node:', agentId);
   };
 
+  // Extract result slice for this stage (needed for status derivation)
+  const resultSlice = useMemo(() => sliceFor(stageName, result), [stageName, result]);
+
   // Derive status
   const lastProgress = progressItems[progressItems.length - 1];
   const isDone = lastProgress?.status === 'Done';
-  const status: NodeStatus = isDone ? 'COMPLETE' : (progressItems.length > 0 ? 'IN_PROGRESS' : 'IDLE') as NodeStatus;
+  const isError = lastProgress?.status === 'Error' || !!resultSlice?.error;
+  const status: NodeStatus = isDone && !resultSlice?.error
+    ? 'COMPLETE'
+    : isError
+      ? 'ERROR'
+      : (progressItems.length > 0 ? 'IN_PROGRESS' : 'IDLE') as NodeStatus;
 
   // Derive elapsed
   const startedAt = progressItems[0]?.ts;
-  const completedAt = isDone ? lastProgress?.ts : undefined;
+  const completedAt = (isDone || isError) ? lastProgress?.ts : undefined;
   const elapsed = startedAt ? elapsedSeconds({ status, startedAt, completedAt }) : null;
-
-  // Extract result slice for this stage
-  const resultSlice = useMemo(() => sliceFor(stageName, result), [stageName, result]);
 
   const fmtTime = (ts: number | undefined) => {
     if (!ts) return '';
