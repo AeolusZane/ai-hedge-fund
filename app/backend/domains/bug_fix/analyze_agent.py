@@ -452,15 +452,15 @@ async def analyze_jira_issue(
     total_usage = {"input_tokens": 0, "output_tokens": 0}
 
     # ── Phase 0: Knowledge Recall ───────────────────────────────────
-    # Query two knowledge sources in parallel:
-    #   1. experience_store — team's own bug fix history (FTS5)
-    #   2. pr_embedding — historical PR review records (vector similarity)
+    # Query two knowledge sources:
+    #   1. experience_store — team's own bug fix history (TF-IDF vector + FTS5 fallback)
+    #   2. pr_embedding — historical PR review records (TF-IDF vector similarity)
     experience_context = ""
     similar_cases: list[dict[str, Any]] = []
     pr_references: list[dict[str, Any]] = []
     query_text = f"{jira_detail.get('summary', '')} {jira_detail.get('description', '')[:300]}"
 
-    # Source 1: Experience Store (local SQLite + FTS5)
+    # Source 1: Experience Store (local SQLite + TF-IDF vector search)
     try:
         store = ExperienceStore()
         experiences = store.search_similar(query_text, limit=3, min_confidence=0.3)
@@ -493,10 +493,10 @@ async def analyze_jira_issue(
         import logging
         logging.getLogger(__name__).warning(f"Experience recall failed: {e}")
 
-    # Source 2: PR Embedding Service (semantic search over PR reviews)
+    # Source 2: PR Embedding (local TF-IDF vector search over PR reviews)
     try:
-        from app.backend.domains.bug_fix.pr_embedding_client import search_similar_prs
-        pr_results = await search_similar_prs(query_text, n=5)
+        from app.backend.domains.bug_fix.pr_embedding import search_reviews
+        pr_results = search_reviews(query_text, n=5)
         if pr_results:
             pr_texts = []
             for i, ref in enumerate(pr_results, 1):
@@ -506,7 +506,7 @@ async def analyze_jira_issue(
                     f"- Module: {ref.get('module', 'unknown')}\n"
                     f"- File: {ref.get('file_path', 'unknown')}\n"
                     f"- Reviewer: {ref.get('reviewer', 'unknown')}\n"
-                    f"- Comment: {ref['comment']}\n"
+                    f"- Comment: {ref.get('comment_raw', '')[:300]}\n"
                 )
                 pr_references.append(ref)
             experience_context += (

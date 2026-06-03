@@ -665,6 +665,7 @@ class BugFixExecutor(WorkflowExecutor):
                 if decision.context:
                     exp.human_context = decision.context
                 exp_id = store.store(exp)
+                store.build_vectors()
                 done_payload["experience_stored"] = True
                 done_payload["experience_id"] = exp_id
                 # Emit a progress event so the frontend knows

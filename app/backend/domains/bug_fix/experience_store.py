@@ -3,19 +3,24 @@
 Stores completed bug fix cases as reusable experiences. When a new bug
 comes in, the system searches for similar past cases to accelerate analysis.
 
-Uses SQLite FTS5 for full-text similarity search — no vector DB needed.
+Uses TF-IDF vector similarity search (primary) with FTS5 full-text search
+as fallback. The vector search handles semantic similarity — e.g. matching
+"登录超时白屏" with "session expired 导致页面崩溃".
 """
 from __future__ import annotations
 
 import json
 import logging
+import math
 import sqlite3
+import struct
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from app.backend.database.connection import DATABASE_PATH
+from app.backend.domains.bug_fix.pr_embedding.tokenizer import tokenize
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +82,7 @@ class Experience:
 
 
 class ExperienceStore:
-    """SQLite-backed experience storage with FTS5 search."""
+    """SQLite-backed experience storage with TF-IDF vector search + FTS5 fallback."""
 
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = str(db_path or DATABASE_PATH)
@@ -156,6 +161,18 @@ class ExperienceStore:
                     VALUES (new.id, new.issue_summary, new.issue_description,
                         new.root_cause, new.root_cause_hypothesis, new.patch_strategy, new.bug_type);
                 END;
+
+                -- TF-IDF vector tables for semantic search
+                CREATE TABLE IF NOT EXISTS experiences_vocab (
+                    word TEXT PRIMARY KEY,
+                    idx INTEGER NOT NULL,
+                    idf REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS experiences_vectors (
+                    exp_id INTEGER PRIMARY KEY,
+                    vector BLOB NOT NULL
+                );
             """)
             conn.commit()
         finally:
@@ -206,6 +223,87 @@ class ExperienceStore:
         finally:
             conn.close()
 
+    def build_vectors(self) -> int:
+        """Build TF-IDF vectors for all experiences.
+
+        Call this after storing new experiences to update the vector index.
+
+        Returns:
+            Number of experiences vectorized
+        """
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT id, search_text FROM experiences WHERE search_text != ''"
+            ).fetchall()
+
+            if not rows:
+                return 0
+
+            # Tokenize all documents
+            all_docs = [tokenize(row["search_text"]) for row in rows]
+            n_docs = len(all_docs)
+
+            # Compute document frequency
+            df: dict[str, int] = {}
+            for tokens in all_docs:
+                for t in set(tokens):
+                    df[t] = df.get(t, 0) + 1
+
+            # Build vocab: filter out too-rare and too-common words
+            vocab: dict[str, dict] = {}
+            idx = 0
+            for word, count in df.items():
+                if 1 <= count <= n_docs * 0.9:
+                    vocab[word] = {"idx": idx, "idf": math.log(n_docs / count)}
+                    idx += 1
+
+            # Clear and rebuild vocab
+            conn.execute("DELETE FROM experiences_vocab")
+            for word, info in vocab.items():
+                conn.execute(
+                    "INSERT INTO experiences_vocab (word, idx, idf) VALUES (?, ?, ?)",
+                    (word, info["idx"], info["idf"]),
+                )
+
+            # Clear and rebuild vectors
+            conn.execute("DELETE FROM experiences_vectors")
+
+            dim = len(vocab)
+            if dim == 0:
+                conn.commit()
+                return 0
+
+            for row, tokens in zip(rows, all_docs):
+                tf: dict[str, int] = {}
+                for t in tokens:
+                    if t in vocab:
+                        tf[t] = tf.get(t, 0) + 1
+
+                vec = [0.0] * dim
+                for t, count in tf.items():
+                    vec[vocab[t]["idx"]] = count * vocab[t]["idf"]
+
+                # L2 normalize
+                norm = math.sqrt(sum(v * v for v in vec))
+                if norm > 0:
+                    vec = [v / norm for v in vec]
+
+                blob = struct.pack(f"{dim}f", *vec)
+                conn.execute(
+                    "INSERT INTO experiences_vectors (exp_id, vector) VALUES (?, ?)",
+                    (row["id"], blob),
+                )
+
+            conn.commit()
+            logger.info(f"Built vectors for {n_docs} experiences (vocab: {dim})")
+            return n_docs
+        except Exception as e:
+            logger.warning(f"build_vectors failed: {e}")
+            return 0
+        finally:
+            conn.close()
+
     def search_similar(
         self,
         query: str,
@@ -214,7 +312,10 @@ class ExperienceStore:
         limit: int = 5,
         min_confidence: float = 0.0,
     ) -> list[Experience]:
-        """Search for similar experiences using FTS5.
+        """Search for similar experiences using TF-IDF vector similarity.
+
+        Falls back to FTS5 full-text search if vector search fails or
+        returns no results.
 
         Args:
             query: Natural language description of the bug to match against
@@ -225,20 +326,122 @@ class ExperienceStore:
         Returns:
             List of matching experiences, ranked by relevance
         """
+        # Try vector search first
+        results = self._vector_search(query, bug_type=bug_type, limit=limit, min_confidence=min_confidence)
+        
+        # Fallback to FTS5 if vector search returns nothing
+        if not results:
+            results = self._fts_search(query, bug_type=bug_type, limit=limit, min_confidence=min_confidence)
+        
+        # Final fallback to LIKE search
+        if not results:
+            results = self._fallback_search(query, bug_type=bug_type, limit=limit)
+        
+        return results
+
+    def _vector_search(
+        self,
+        query: str,
+        *,
+        bug_type: str = "",
+        limit: int = 5,
+        min_confidence: float = 0.0,
+    ) -> list[Experience]:
+        """TF-IDF vector similarity search."""
         conn = self._connect()
         try:
-            # Build FTS query — use the query text directly
-            # FTS5 supports ranking via bm25()
+            # Load vocab
+            vocab_rows = conn.execute(
+                "SELECT word, idx, idf FROM experiences_vocab"
+            ).fetchall()
+            
+            if not vocab_rows:
+                return []
+            
+            vocab = {row["word"]: {"idx": row["idx"], "idf": row["idf"]} for row in vocab_rows}
+            dim = len(vocab)
+            
+            # Build query vector
+            query_tokens = tokenize(query)
+            tf: dict[str, int] = {}
+            for t in query_tokens:
+                if t in vocab:
+                    tf[t] = tf.get(t, 0) + 1
+            
+            query_vec = [0.0] * dim
+            for t, count in tf.items():
+                query_vec[vocab[t]["idx"]] = count * vocab[t]["idf"]
+            
+            # L2 normalize
+            norm = math.sqrt(sum(v * v for v in query_vec))
+            if norm > 0:
+                query_vec = [v / norm for v in query_vec]
+            else:
+                return []
+            
+            # Compute cosine similarity
+            vectors = conn.execute(
+                "SELECT exp_id, vector FROM experiences_vectors"
+            ).fetchall()
+            
+            scored = []
+            for row in vectors:
+                vec = struct.unpack(f"{dim}f", row["vector"])
+                score = sum(a * b for a, b in zip(query_vec, vec))
+                scored.append((row["exp_id"], score))
+            
+            scored.sort(key=lambda x: x[1], reverse=True)
+            top_ids = [exp_id for exp_id, score in scored[:limit * 2] if score > 0.01]
+            
+            if not top_ids:
+                return []
+            
+            # Fetch experiences
+            placeholders = ",".join(["?"] * len(top_ids))
+            sql = f"""
+                SELECT * FROM experiences
+                WHERE id IN ({placeholders})
+                  AND confidence >= ?
+            """
+            params: list[Any] = top_ids + [min_confidence]
+            
+            if bug_type:
+                sql += " AND bug_type = ?"
+                params.append(bug_type)
+            
+            rows = conn.execute(sql, params).fetchall()
+            
+            # Sort by vector score
+            id_score = {exp_id: score for exp_id, score in scored}
+            results = [Experience.from_row(r) for r in rows]
+            results.sort(key=lambda e: id_score.get(e.id, 0), reverse=True)
+            
+            return results[:limit]
+        except Exception as e:
+            logger.debug(f"Vector search failed: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def _fts_search(
+        self,
+        query: str,
+        *,
+        bug_type: str = "",
+        limit: int = 5,
+        min_confidence: float = 0.0,
+    ) -> list[Experience]:
+        """FTS5 full-text search fallback."""
+        conn = self._connect()
+        try:
             fts_query = query.strip()
             if not fts_query:
                 return []
 
-            # Escape special FTS characters and build OR query from words
             words = [w for w in fts_query.split() if len(w) >= 2]
             if not words:
                 return []
 
-            # Use OR to be more permissive (any word match)
             fts_expr = " OR ".join(words)
 
             sql = """
@@ -261,8 +464,7 @@ class ExperienceStore:
             return [Experience.from_row(r) for r in rows]
         except Exception as e:
             logger.warning(f"FTS search failed: {e}")
-            # Fallback: simple LIKE search
-            return self._fallback_search(query, bug_type=bug_type, limit=limit)
+            return []
         finally:
             conn.close()
 
