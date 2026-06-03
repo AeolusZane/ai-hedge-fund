@@ -238,7 +238,28 @@ class BugFixExecutor(WorkflowExecutor):
         except JiraFetchError as e:
             raise RuntimeError(str(e)) from e
 
-        return self._build_result(issue_key, state, stages_executed)
+        result = self._build_result(issue_key, state, stages_executed)
+        
+        # Emit anomaly notifications if any were detected
+        if hasattr(self, '_anomaly_detector'):
+            anomaly_summary = self._anomaly_detector.get_summary()
+            if anomaly_summary["anomaly_count"] > 0:
+                # Emit each anomaly as a separate progress event
+                for anomaly in anomaly_summary["anomalies"]:
+                    context.emit(ProgressEvent(
+                        node_id=None,  # Global anomaly, not tied to specific node
+                        status="Anomaly",
+                        payload={
+                            "type": "anomaly",
+                            "anomaly_type": anomaly["type"],
+                            "severity": anomaly["severity"],
+                            "message": anomaly["message"],
+                            "details": anomaly["details"],
+                            "timestamp": anomaly["timestamp"],
+                        }
+                    ))
+        
+        return result
 
     async def _run_graph(
         self,

@@ -320,6 +320,18 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
         }
         return;
       }
+      // Anomaly event — display anomaly notifications to the user
+      if (data.status === 'Anomaly' && data.payload?.type === 'anomaly') {
+        const anomaly = data.payload;
+        setProgress((prev) => [
+          ...prev,
+          { 
+            agent: null, 
+            status: `⚠️ ${anomaly.severity.toUpperCase()}: ${anomaly.message}` 
+          },
+        ]);
+        return;
+      }
       setProgress((prev) => [
         ...prev,
         { agent: data.agent ?? null, status: data.status ?? '' },
