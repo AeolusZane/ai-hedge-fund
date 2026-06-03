@@ -671,6 +671,25 @@ class BugFixExecutor(WorkflowExecutor):
             project = project or parsed_project
             repo = repo or parsed_repo
 
+        # If the URL is a fork, query Bitbucket API to find the origin (main repo).
+        # This allows users to just fill in their fork URL and have PRs auto-target the main repo.
+        if _is_fork_url(repo_url) and project and repo:
+            try:
+                from app.backend.domains.bug_fix.bitbucket_client import get_repo_info
+                repo_info = await get_repo_info(project=project, repo=repo)
+                origin = repo_info.get("origin")
+                if origin:
+                    origin_project = origin.get("project", {}).get("key", "")
+                    origin_repo = origin.get("slug", "")
+                    if origin_project and origin_repo:
+                        # Store fork info for push, use origin for PR target
+                        state["pr_fork_project"] = project
+                        state["pr_fork_repo"] = repo
+                        project = origin_project
+                        repo = origin_repo
+            except Exception:
+                pass  # API not configured or failed — fall through to use fork directly
+
         # Fallback: auto-detect project/repo from git remotes.
         # Strategy: if user specified a prTargetRemote, use that remote's URL.
         # Otherwise, classify each remote URL as "fork" (contains ~username)
@@ -759,6 +778,8 @@ class BugFixExecutor(WorkflowExecutor):
                 from_branch=from_branch,
                 to_branch=target_branch,
                 analysis=state.get("analysis"),
+                from_project=state.get("pr_fork_project"),
+                from_repo=state.get("pr_fork_repo"),
             )
         except PrConfigError as e:
             state["open_pr_error"] = str(e)

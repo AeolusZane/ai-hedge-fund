@@ -34,17 +34,21 @@ async def open_pr(
     from_branch: str,
     to_branch: str,
     analysis: dict[str, Any] | None = None,
+    from_project: str | None = None,
+    from_repo: str | None = None,
 ) -> dict[str, Any]:
     """Create a Bitbucket PR for an existing branch.
 
     Args:
         issue_key: Jira issue key (e.g. "BUG-123")
         summary: Issue summary for PR title
-        project: Bitbucket project key
-        repo: Repository slug
+        project: Bitbucket project key (target repo)
+        repo: Repository slug (target repo)
         from_branch: Source branch name
         to_branch: Target branch name
         analysis: Optional analysis result from Analyze stage
+        from_project: Optional project key for source repo (fork)
+        from_repo: Optional repo slug for source repo (fork)
 
     Returns:
         Dict with PR details including id, url, etc.
@@ -78,6 +82,8 @@ async def open_pr(
             from_branch=from_branch,
             to_branch=to_branch or "main",
             description="\n".join(description_lines),
+            from_project=from_project,
+            from_repo=from_repo,
         )
     except BitbucketMcpConfigError as e:
         raise PrConfigError(f"Bitbucket MCP not configured: {e}")

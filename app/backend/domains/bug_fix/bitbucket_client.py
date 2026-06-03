@@ -40,6 +40,57 @@ def _get_bitbucket_config() -> tuple[str, str, str]:
     return base_url, token, username
 
 
+async def get_repo_info(
+    *,
+    project: str,
+    repo: str,
+) -> dict[str, Any]:
+    """Get repository info from Bitbucket Server REST API.
+
+    Returns the full repo object including 'origin' field for forks,
+    which points to the parent repository.
+
+    Args:
+        project: Bitbucket project key (e.g. "~aeolus.zhang")
+        repo: Repository slug (e.g. "nuclear-webui")
+
+    Returns:
+        Dict with repo details including origin (if fork)
+
+    Raises:
+        BitbucketMcpConfigError: When env vars are missing
+        BitbucketMcpToolError: When the API returns an error
+    """
+    base_url, token, _ = _get_bitbucket_config()
+
+    url = f"{base_url}/rest/api/1.0/projects/{project}/repos/{repo}"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.get(url, headers=headers)
+        except httpx.RequestError as e:
+            raise BitbucketMcpToolError(f"Bitbucket API request failed: {e}") from e
+
+        if response.status_code == 401:
+            raise BitbucketMcpToolError("Bitbucket API authentication failed (401)")
+        if response.status_code == 404:
+            return {}  # Repo not found, return empty
+        if response.status_code not in (200, 201):
+            raise BitbucketMcpToolError(
+                f"Bitbucket API error {response.status_code}: {response.text[:500]}"
+            )
+
+        try:
+            return response.json()
+        except Exception as e:
+            raise BitbucketMcpToolError(f"Failed to parse Bitbucket response: {e}") from e
+
+
 async def create_pr(
     *,
     project: str,
@@ -49,17 +100,21 @@ async def create_pr(
     to_branch: str,
     description: str = "",
     reviewers: list[str] | None = None,
+    from_project: str | None = None,
+    from_repo: str | None = None,
 ) -> dict[str, Any]:
     """Create a pull request via the Bitbucket Server REST API.
 
     Args:
-        project: Bitbucket project key (e.g. "AI")
-        repo: Repository slug (e.g. "corevo")
+        project: Bitbucket project key for target repo (e.g. "AI")
+        repo: Repository slug for target repo (e.g. "corevo")
         title: PR title
         from_branch: Source branch
         to_branch: Target branch
         description: PR description (markdown)
         reviewers: Optional list of reviewer usernames
+        from_project: Optional project key for source repo (for cross-repo PRs from forks)
+        from_repo: Optional repo slug for source repo (for cross-repo PRs from forks)
 
     Returns:
         Dict with PR details including id, url, etc.
@@ -73,6 +128,11 @@ async def create_pr(
     # Bitbucket Server REST API endpoint
     url = f"{base_url}/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests"
 
+    # For cross-repo PRs (from fork), use from_project/from_repo for fromRef
+    # Otherwise use the same project/repo for both
+    src_project = from_project or project
+    src_repo = from_repo or repo
+
     # Build the request body
     body: dict[str, Any] = {
         "title": title,
@@ -80,8 +140,8 @@ async def create_pr(
         "fromRef": {
             "id": f"refs/heads/{from_branch}",
             "repository": {
-                "slug": repo,
-                "project": {"key": project},
+                "slug": src_repo,
+                "project": {"key": src_project},
             },
         },
         "toRef": {
