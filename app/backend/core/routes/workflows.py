@@ -194,6 +194,8 @@ class NodeChatRequest(BaseModel):
     conversation_history: list[dict[str, str]] = []
     node_config: dict[str, Any] = {}
     error_info: Optional[str] = None
+    streaming_output: Optional[str] = None
+    node_status: Optional[str] = None
     repo_path: Optional[str] = None
     model_name: Optional[str] = None
     model_provider: Optional[str] = None
@@ -226,6 +228,8 @@ async def node_chat(
         conversation_history=request_data.conversation_history,
         node_config=request_data.node_config,
         error_info=request_data.error_info,
+        streaming_output=request_data.streaming_output,
+        node_status=request_data.node_status,
         repo_path=request_data.repo_path,
         model_name=request_data.model_name,
         model_provider=request_data.model_provider,

@@ -18,6 +18,8 @@ interface NodeChatProps {
   nodeType: string;
   nodeConfig: Record<string, unknown>;
   errorInfo?: string;
+  streamingOutput?: string;
+  nodeStatus?: string;
   repoPath?: string;
   onConfigUpdate?: (key: string, value: string) => void;
   onRetry?: () => void;
@@ -29,6 +31,8 @@ export function NodeChat({
   nodeType,
   nodeConfig,
   errorInfo,
+  streamingOutput,
+  nodeStatus,
   repoPath,
   onConfigUpdate,
   onRetry,
@@ -71,6 +75,8 @@ export function NodeChat({
           conversation_history: messages.map(m => ({ role: m.role, content: m.content })),
           node_config: nodeConfig,
           error_info: errorInfo,
+          streaming_output: streamingOutput,
+          node_status: nodeStatus,
           repo_path: repoPath,
         }),
         signal: abortControllerRef.current.signal,
@@ -177,7 +183,11 @@ export function NodeChat({
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3 min-h-[150px] max-h-[300px]">
         {messages.length === 0 && (
           <div className="text-xs text-muted-foreground text-center py-4">
-            Ask me about the error or suggest a fix
+            {nodeStatus === 'IN_PROGRESS'
+              ? 'Ask me about the current progress or what I\'m working on'
+              : nodeStatus === 'ERROR'
+              ? 'Ask me about the error or suggest a fix'
+              : 'Ask me anything about this step'}
           </div>
         )}
         {messages.map((msg, i) => (
@@ -246,7 +256,13 @@ export function NodeChat({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask about the error or suggest a fix..."
+          placeholder={
+            nodeStatus === 'IN_PROGRESS'
+              ? 'Ask about progress or current status...'
+              : nodeStatus === 'ERROR'
+              ? 'Ask about the error or suggest a fix...'
+              : 'Ask anything about this step...'
+          }
           disabled={isStreaming}
           className="text-xs h-8"
         />

@@ -92,6 +92,8 @@ class NodeChatRequest(BaseModel):
     conversation_history: list[dict[str, str]] = Field(default_factory=list)
     node_config: dict[str, Any] = Field(default_factory=dict)
     error_info: Optional[str] = None
+    streaming_output: Optional[str] = None
+    node_status: Optional[str] = None
     repo_path: Optional[str] = None
     model_name: Optional[str] = None
     model_provider: Optional[str] = None
@@ -103,24 +105,37 @@ def _build_system_prompt(request: NodeChatRequest) -> str:
     config_str = json.dumps(request.node_config, indent=2, ensure_ascii=False)
     error_section = f"\n\nError:\n{request.error_info}" if request.error_info else ""
     repo_section = f"\n\nRepository path: {request.repo_path}" if request.repo_path else ""
+    
+    # Add streaming output context for in-progress nodes
+    streaming_section = ""
+    if request.streaming_output and request.node_status == "IN_PROGRESS":
+        # Truncate to last 2000 chars to avoid overwhelming the context
+        output = request.streaming_output
+        if len(output) > 2000:
+            output = "..." + output[-2000:]
+        streaming_section = f"\n\nCurrent progress (live output):\n{output}"
+    
+    status_section = f"\nNode status: {request.node_status}" if request.node_status else ""
 
-    return f"""You are a debugging assistant for a CI/CD pipeline node.
+    return f"""You are an assistant for a CI/CD pipeline node.
 
 Current node: {request.node_name} (type: {request.node_type})
-Node ID: {request.node_id}
+Node ID: {request.node_id}{status_section}
 
 Current configuration:
-{config_str}{error_section}{repo_section}
+{config_str}{error_section}{repo_section}{streaming_section}
 
 Your capabilities:
-1. Analyze errors and explain what went wrong
-2. Suggest configuration fixes
-3. Update configuration using the update_config tool
-4. Trigger a retry using the retry_node tool
-5. Query git remotes using get_git_remotes tool
+1. Report current progress and explain what's happening (when node is running)
+2. Analyze errors and explain what went wrong (when node has failed)
+3. Suggest configuration fixes
+4. Update configuration using the update_config tool
+5. Trigger a retry using the retry_node tool
+6. Query git remotes using get_git_remotes tool
 
 Guidelines:
 - Be concise and actionable
+- When the node is running, summarize the current progress based on the live output
 - When suggesting fixes, explain the reasoning
 - Use tools to make actual changes, don't just describe them
 - After updating config, suggest retry if appropriate

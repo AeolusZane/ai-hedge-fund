@@ -375,14 +375,16 @@ export function StepDetailPanel() {
         )}
       </div>
 
-      {/* Agent Chat — show when node has error or is complete */}
-      {(status === 'ERROR' || status === 'COMPLETE') && resultSlice?.error && (
+      {/* Agent Chat — available whenever the node has started (not IDLE) */}
+      {status !== 'IDLE' && (
         <NodeChat
           nodeId={agentId}
           nodeName={stageName}
           nodeType={stageName}
           nodeConfig={nodeConfig}
-          errorInfo={resultSlice.error}
+          errorInfo={resultSlice?.error}
+          streamingOutput={stream}
+          nodeStatus={status}
           repoPath={nodeConfig.repoPath as string | undefined}
           onConfigUpdate={handleConfigUpdate}
           onRetry={handleRetry}
