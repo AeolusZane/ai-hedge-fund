@@ -30,7 +30,7 @@ def _claude_binary() -> str:
 
 def _validate_repo(repo_path: str) -> Path:
     if not repo_path:
-        raise PatchConfigError("repo_path is empty (add a Repo Path Input node)")
+        raise PatchConfigError("repo_path is empty (fill the Repo URL field on the Patch node)")
     p = Path(repo_path).expanduser()
     if not p.is_dir():
         raise PatchConfigError(f"repo_path {p} is not a directory")

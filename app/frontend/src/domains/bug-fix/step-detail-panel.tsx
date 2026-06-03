@@ -48,7 +48,7 @@ export function StepDetailPanel() {
   const nodeConfig = useMemo(() => {
     if (!nodeData) return {};
     const config: Record<string, unknown> = {};
-    for (const key of ['modelName', 'modelProvider', 'repoPath', 'repoUrl', 'targetBranch', 'pushRemote', 'prTargetRemote']) {
+    for (const key of ['modelName', 'modelProvider', 'repoUrl', 'targetBranch', 'pushRemote', 'prTargetRemote']) {
       if (nodeData[key] !== undefined && nodeData[key] !== '') {
         config[key] = nodeData[key];
       }

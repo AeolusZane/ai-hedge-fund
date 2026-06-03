@@ -369,28 +369,25 @@ class BugFixExecutor(WorkflowExecutor):
             done_payload["error"] = state["patch_error"]
             return
         
-        # Clone repo into workspace if run_id is available
+        # Clone repo into workspace
         run_id = state.get("run_id")
-        if run_id:
-            try:
-                repo_path_obj = await clone_repo(
-                    run_id=run_id,
-                    repo_url=repo_url,
-                    branch=target_branch,
-                    repo_name="repo",
-                )
-                repo_path = str(repo_path_obj)
-            except Exception as e:
-                state["patch_error"] = f"Failed to clone repo: {e}"
-                done_payload["error"] = state["patch_error"]
-                return
-        else:
-            # Fallback to legacy repo_path if no run_id
-            repo_path = str(node_data.get("repoPath") or "").strip() or state.get("repo_path")
-            if not repo_path:
-                state["patch_error"] = "Patch needs either repoUrl (for workspace) or repoPath (legacy)"
-                done_payload["error"] = state["patch_error"]
-                return
+        if not run_id:
+            state["patch_error"] = "Patch requires a run_id (internal error — flow run not initialized)"
+            done_payload["error"] = state["patch_error"]
+            return
+
+        try:
+            repo_path_obj = await clone_repo(
+                run_id=run_id,
+                repo_url=repo_url,
+                branch=target_branch,
+                repo_name="repo",
+            )
+            repo_path = str(repo_path_obj)
+        except Exception as e:
+            state["patch_error"] = f"Failed to clone repo: {e}"
+            done_payload["error"] = state["patch_error"]
+            return
         
         # Cache for downstream stages (Open PR needs the same path)
         state["repo_path"] = repo_path

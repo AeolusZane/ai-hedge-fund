@@ -30,8 +30,8 @@ const STAGES_THAT_NEED_PR_CONFIG = new Set(['Open PR']);
  * Per-stage configuration lives directly on the node (no separate config
  * input nodes). What renders depends on `data.name`:
  *   Analyze  → ModelSelector
- *   Patch    → Repo path text input
- *   Open PR  → Repo path + Bitbucket project / repo / target branch inputs
+ *   Patch    → Repo URL text input
+ *   Open PR  → Repo URL + Bitbucket project / repo / target branch inputs
  * All values are persisted via useNodeState and folded into node.data by
  * the run dialog when snapshotting the graph for submission.
  */
