@@ -451,15 +451,20 @@ async def analyze_jira_issue(
     jira_context = _build_jira_context(jira_detail)
     total_usage = {"input_tokens": 0, "output_tokens": 0}
 
-    # ── Phase 0: Experience Recall ──────────────────────────────────
+    # ── Phase 0: Knowledge Recall ───────────────────────────────────
+    # Query two knowledge sources in parallel:
+    #   1. experience_store — team's own bug fix history (FTS5)
+    #   2. pr_embedding — historical PR review records (TF-IDF semantic)
     experience_context = ""
     similar_cases: list[dict[str, Any]] = []
+    pr_references: list[dict[str, Any]] = []
+    query_text = f"{jira_detail.get('summary', '')} {jira_detail.get('description', '')[:300]}"
+
+    # Source 1: Experience Store (local SQLite + FTS5)
     try:
         store = ExperienceStore()
-        query_text = f"{jira_detail.get('summary', '')} {jira_detail.get('description', '')[:300]}"
         experiences = store.search_similar(query_text, limit=3, min_confidence=0.3)
         if experiences:
-            similar_cases = []
             case_texts = []
             for i, exp in enumerate(experiences, 1):
                 case_texts.append(
@@ -478,28 +483,55 @@ async def analyze_jira_issue(
                     "confidence": exp.confidence,
                     "files_changed": exp.files_changed,
                 })
-            experience_context = (
+            experience_context += (
                 "## Historical Similar Cases (from team knowledge base)\n"
                 "The following cases were previously solved by the team. "
                 "Use them as reference — the current bug may share the same root cause.\n\n"
-                + "\n".join(case_texts)
+                + "\n".join(case_texts) + "\n"
             )
     except Exception as e:
-        # Non-fatal: continue without experience recall
-        logger_msg = f"Experience recall failed: {e}"
         import logging
-        logging.getLogger(__name__).warning(logger_msg)
+        logging.getLogger(__name__).warning(f"Experience recall failed: {e}")
 
-    # Emit experience recall decision step
+    # Source 2: PR Embedding Service (semantic search over PR reviews)
+    try:
+        from app.backend.domains.bug_fix.pr_embedding_client import search_similar_prs
+        pr_results = await search_similar_prs(query_text, n=5)
+        if pr_results:
+            pr_texts = []
+            for i, ref in enumerate(pr_results, 1):
+                pr_texts.append(
+                    f"### PR Review #{i}: PR #{ref['pr_id']} — {ref.get('issue_type', 'unknown')}\n"
+                    f"- PR title: {ref.get('pr_title', '')}\n"
+                    f"- Module: {ref.get('module', 'unknown')}\n"
+                    f"- File: {ref.get('file_path', 'unknown')}\n"
+                    f"- Reviewer: {ref.get('reviewer', 'unknown')}\n"
+                    f"- Comment: {ref['comment']}\n"
+                )
+                pr_references.append(ref)
+            experience_context += (
+                "\n## Historical PR Review Context\n"
+                "The following similar issues were flagged in past PR reviews. "
+                "Use them as reference patterns but do not copy verbatim.\n\n"
+                + "\n".join(pr_texts)
+            )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"PR embedding search failed: {e}")
+
+    # Emit knowledge recall decision step
+    total_knowledge = len(similar_cases) + len(pr_references)
     recall_step = {
-        "step": "experience_recall",
-        "description": f"Found {len(similar_cases)} similar historical cases" if similar_cases else "No similar cases found",
+        "step": "knowledge_recall",
+        "description": f"Found {len(similar_cases)} cases + {len(pr_references)} PR reviews" if total_knowledge else "No historical knowledge found",
         "details": {
-            "cases_found": len(similar_cases),
+            "experience_cases": len(similar_cases),
+            "pr_references": len(pr_references),
             "cases": similar_cases,
-            "mode": "reuse" if similar_cases else "generate",
+            "pr_refs": [{"pr_id": r["pr_id"], "issue_type": r.get("issue_type", "")} for r in pr_references],
+            "mode": "reuse" if total_knowledge else "generate",
         },
-        "confidence": 0.8 if similar_cases else 0.0,
+        "confidence": 0.85 if total_knowledge else 0.0,
     }
     if on_decision_step:
         await on_decision_step(recall_step)
