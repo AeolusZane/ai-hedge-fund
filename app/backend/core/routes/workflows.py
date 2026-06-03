@@ -8,6 +8,7 @@ remain available for backwards compatibility.
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -167,6 +168,203 @@ async def run(
                 flow_run_repo.update_flow_run(
                     flow_run.id, status=FlowRunStatus.ERROR, error_message=str(exc)
                 )
+            yield ErrorEvent(message=str(exc)).to_sse()
+            return
+        finally:
+            if run_task and not run_task.done():
+                run_task.cancel()
+                try:
+                    await run_task
+                except asyncio.CancelledError:
+                    pass
+            if disconnect_task and not disconnect_task.done():
+                disconnect_task.cancel()
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# ── Node Chat & Retry Routes ──────────────────────────────────────────────────
+
+class NodeChatRequest(BaseModel):
+    """Request for node-level Agent chat."""
+    node_id: str
+    node_name: str
+    node_type: str
+    message: str
+    conversation_history: list[dict[str, str]] = []
+    node_config: dict[str, Any] = {}
+    error_info: Optional[str] = None
+    repo_path: Optional[str] = None
+    model_name: Optional[str] = None
+    model_provider: Optional[str] = None
+
+
+class RetryNodeRequest(BaseModel):
+    """Request to retry a single node."""
+    flow_id: int
+    run_id: int
+    node_id: str
+    updated_config: dict[str, Any] = {}
+
+
+@router.post("/{domain}/node-chat")
+async def node_chat(
+    domain: str,
+    request_data: NodeChatRequest,
+    db: Session = Depends(get_db),
+):
+    """Stream Agent responses for node-level debugging."""
+    from app.backend.domains.bug_fix.node_chat_agent import NodeChatRequest as AgentRequest, chat_with_node
+
+    api_keys = ApiKeyService(db).get_api_keys_dict()
+
+    agent_request = AgentRequest(
+        node_id=request_data.node_id,
+        node_name=request_data.node_name,
+        node_type=request_data.node_type,
+        message=request_data.message,
+        conversation_history=request_data.conversation_history,
+        node_config=request_data.node_config,
+        error_info=request_data.error_info,
+        repo_path=request_data.repo_path,
+        model_name=request_data.model_name,
+        model_provider=request_data.model_provider,
+        api_keys=api_keys,
+    )
+
+    async def event_stream():
+        try:
+            async for event in chat_with_node(agent_request):
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/{domain}/retry-node")
+async def retry_node(
+    domain: str,
+    request_data: RetryNodeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Retry a single node with updated configuration."""
+    try:
+        executor = executor_registry.get(domain)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Unknown domain {domain!r}")
+
+    flow_run_repo = FlowRunRepository(db)
+    flow_run = flow_run_repo.get_flow_run(request_data.run_id)
+    if not flow_run:
+        raise HTTPException(status_code=404, detail=f"FlowRun {request_data.run_id} not found")
+
+    api_keys = ApiKeyService(db).get_api_keys_dict()
+
+    async def wait_for_disconnect() -> bool:
+        try:
+            while True:
+                message = await request.receive()
+                if message["type"] == "http.disconnect":
+                    return True
+        except Exception:
+            return True
+
+    async def event_generator():
+        progress_queue: asyncio.Queue = asyncio.Queue()
+        run_task = None
+        disconnect_task = None
+        cancelled = {"value": False}
+
+        def emit(event: ProgressEvent) -> None:
+            payload = event.payload or {}
+            progress_queue.put_nowait(
+                ProgressUpdateEvent(
+                    agent=event.node_id,
+                    ticker=payload.get("ticker"),
+                    status=event.status,
+                    timestamp=payload.get("timestamp"),
+                    analysis=payload.get("analysis"),
+                    chunk=payload.get("chunk"),
+                )
+            )
+
+        context = ExecutorContext(
+            db=db,
+            api_keys=api_keys or {},
+            emit=emit,
+            is_cancelled=lambda: cancelled["value"],
+        )
+
+        # Build retry payload: restore state from previous run + apply config updates
+        previous_results = flow_run.results or {}
+        retry_payload = {
+            **previous_results,
+            "retry_node_id": request_data.node_id,
+            "updated_config": request_data.updated_config,
+        }
+
+        try:
+            run_task = asyncio.create_task(executor.run(retry_payload, context))
+            disconnect_task = asyncio.create_task(wait_for_disconnect())
+
+            yield StartEvent().to_sse()
+
+            while not run_task.done():
+                if disconnect_task.done():
+                    cancelled["value"] = True
+                    run_task.cancel()
+                    try:
+                        await run_task
+                    except asyncio.CancelledError:
+                        pass
+                    return
+
+                try:
+                    event = await asyncio.wait_for(progress_queue.get(), timeout=1.0)
+                    yield event.to_sse()
+                except asyncio.TimeoutError:
+                    pass
+
+            try:
+                final_payload = await run_task
+            except asyncio.CancelledError:
+                return
+
+            # Update flow run with retry results
+            has_error = any(
+                key.endswith("_error") and final_payload.get(key)
+                for key in final_payload
+            )
+            if has_error:
+                error_messages = [
+                    f"{k}: {v}" for k, v in final_payload.items()
+                    if k.endswith("_error") and v
+                ]
+                flow_run_repo.update_flow_run(
+                    flow_run.id,
+                    status=FlowRunStatus.ERROR,
+                    error_message="; ".join(error_messages),
+                    results=final_payload,
+                )
+            else:
+                flow_run_repo.update_flow_run(
+                    flow_run.id, status=FlowRunStatus.COMPLETE, results=final_payload
+                )
+            yield CompleteEvent(data=final_payload).to_sse()
+
+        except asyncio.CancelledError:
+            flow_run_repo.update_flow_run(
+                flow_run.id,
+                status=FlowRunStatus.ERROR,
+                error_message="Retry cancelled by client",
+            )
+            return
+        except Exception as exc:
+            flow_run_repo.update_flow_run(
+                flow_run.id, status=FlowRunStatus.ERROR, error_message=str(exc)
+            )
             yield ErrorEvent(message=str(exc)).to_sse()
             return
         finally:

@@ -51,4 +51,58 @@ export const api = {
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
   },
+
+  // ── Node Chat & Retry ──────────────────────────────────────────────────────
+
+  nodeChat: async (params: {
+    nodeId: string;
+    nodeName: string;
+    nodeType: string;
+    message: string;
+    conversationHistory?: Array<{ role: string; content: string }>;
+    nodeConfig?: Record<string, unknown>;
+    errorInfo?: string;
+    repoPath?: string;
+    modelName?: string;
+    modelProvider?: string;
+  }): Promise<Response> => {
+    const response = await fetch(`${API_BASE_URL}/workflows/bug_fix/node-chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        node_id: params.nodeId,
+        node_name: params.nodeName,
+        node_type: params.nodeType,
+        message: params.message,
+        conversation_history: params.conversationHistory || [],
+        node_config: params.nodeConfig || {},
+        error_info: params.errorInfo,
+        repo_path: params.repoPath,
+        model_name: params.modelName,
+        model_provider: params.modelProvider,
+      }),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response;
+  },
+
+  retryNode: async (params: {
+    flowId: number;
+    runId: number;
+    nodeId: string;
+    updatedConfig?: Record<string, unknown>;
+  }): Promise<Response> => {
+    const response = await fetch(`${API_BASE_URL}/workflows/bug_fix/retry-node`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        flow_id: params.flowId,
+        run_id: params.runId,
+        node_id: params.nodeId,
+        updated_config: params.updatedConfig || {},
+      }),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response;
+  },
 };

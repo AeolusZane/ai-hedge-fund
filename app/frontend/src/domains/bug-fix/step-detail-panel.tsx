@@ -1,10 +1,13 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useFlowContext } from '@/contexts/flow-context';
+import { NodeChat } from '@/domains/bug-fix/node-chat';
 import { useNodeOutput } from '@/domains/bug-fix/node-output-store';
 import { useStepDetailTarget, closeStepDetail } from '@/domains/bug-fix/step-detail-context';
 import { cn } from '@/lib/utils';
 import type { NodeStatus } from '@/nodes/utils';
 import { getStatusColor, elapsedSeconds } from '@/nodes/utils';
+import { useReactFlow } from '@xyflow/react';
 import { CheckCircle2, Loader2, XCircle, Pause, ArrowLeft, RotateCcw } from 'lucide-react';
 import { useMemo } from 'react';
 
@@ -28,6 +31,8 @@ function StatusIcon({ status }: { status: NodeStatus }) {
 export function StepDetailPanel() {
   const target = useStepDetailTarget();
   const nodeOutput = useNodeOutput();
+  const reactFlow = useReactFlow();
+  const { currentFlowId } = useFlowContext();
 
   if (!target) return null;
 
@@ -35,6 +40,38 @@ export function StepDetailPanel() {
   const stream = nodeOutput.streamingByAgent[agentId] ?? '';
   const progressItems = nodeOutput.progressByAgent[agentId] ?? [];
   const result = nodeOutput.result;
+
+  // Get the actual node data for chat context
+  const node = reactFlow.getNode(agentId);
+  const nodeData = node?.data as Record<string, unknown> | undefined;
+  const nodeConfig = useMemo(() => {
+    if (!nodeData) return {};
+    const config: Record<string, unknown> = {};
+    for (const key of ['modelName', 'modelProvider', 'repoPath', 'targetBranch', 'pushRemote', 'prTargetRemote']) {
+      if (nodeData[key] !== undefined && nodeData[key] !== '') {
+        config[key] = nodeData[key];
+      }
+    }
+    return config;
+  }, [nodeData]);
+
+  // Update node data when Agent suggests config changes
+  const handleConfigUpdate = (key: string, value: string) => {
+    if (!node) return;
+    reactFlow.setNodes(nodes =>
+      nodes.map(n =>
+        n.id === agentId
+          ? { ...n, data: { ...n.data, [key]: value } }
+          : n
+      )
+    );
+  };
+
+  // Retry: re-run the pipeline (placeholder — full retry needs backend support)
+  const handleRetry = () => {
+    // TODO: implement single-node retry via API
+    console.log('Retry requested for node:', agentId);
+  };
 
   // Derive status
   const lastProgress = progressItems[progressItems.length - 1];
@@ -339,6 +376,20 @@ export function StepDetailPanel() {
           </div>
         )}
       </div>
+
+      {/* Agent Chat — show when node has error or is complete */}
+      {(status === 'ERROR' || status === 'COMPLETE') && resultSlice?.error && (
+        <NodeChat
+          nodeId={agentId}
+          nodeName={stageName}
+          nodeType={stageName}
+          nodeConfig={nodeConfig}
+          errorInfo={resultSlice.error}
+          repoPath={nodeConfig.repoPath as string | undefined}
+          onConfigUpdate={handleConfigUpdate}
+          onRetry={handleRetry}
+        />
+      )}
 
       {/* Footer — re-run button (placeholder for future interrupt mechanism) */}
       <div className="px-4 py-2 border-t">
