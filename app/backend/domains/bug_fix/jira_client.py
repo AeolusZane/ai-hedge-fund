@@ -39,6 +39,85 @@ def _get_jira_config() -> tuple[str, str, str]:
     return base_url, username, token
 
 
+async def search_bugs(
+    project_key: str,
+    status: str = "Open",
+    issue_type: str = "Bug",
+    max_results: int = 20,
+) -> list[dict[str, Any]]:
+    """Search Jira for bug issues matching the criteria.
+
+    Uses JQL (Jira Query Language) to find bugs in the specified project.
+
+    Args:
+        project_key: Jira project key (e.g. "AI", "BUSSINESS")
+        status: Issue status to filter (e.g. "Open", "To Do", "In Progress")
+        issue_type: Issue type (default: "Bug")
+        max_results: Maximum number of results to return
+
+    Returns:
+        List of issue dicts with key, summary, status, priority, assignee, etc.
+        Empty list if no bugs found or API error.
+    """
+    base_url, username, token = _get_jira_config()
+
+    # Build JQL query
+    jql = f'project = "{project_key}" AND issuetype = "{issue_type}"'
+    if status:
+        jql += f' AND status = "{status}"'
+    jql += " ORDER BY created DESC"
+
+    url = f"{base_url}/rest/api/2/search"
+    params = {
+        "jql": jql,
+        "maxResults": max_results,
+        "fields": "summary,status,priority,assignee,reporter,created,updated,description",
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.get(
+                url,
+                params=params,
+                auth=(username, token),
+                headers={"Accept": "application/json"},
+            )
+        except httpx.RequestError as e:
+            raise JiraMcpToolError(f"Jira API request failed: {e}") from e
+
+        if response.status_code == 401:
+            raise JiraMcpToolError("Jira API authentication failed (401)")
+        if response.status_code != 200:
+            raise JiraMcpToolError(
+                f"Jira API error {response.status_code}: {response.text[:500]}"
+            )
+
+        try:
+            data = response.json()
+        except Exception as e:
+            raise JiraMcpToolError(f"Failed to parse Jira response: {e}") from e
+
+    # Flatten the response
+    issues = data.get("issues", [])
+    results = []
+    for issue in issues:
+        fields = issue.get("fields", {})
+        results.append({
+            "key": issue.get("key", ""),
+            "id": issue.get("id", ""),
+            "summary": fields.get("summary", ""),
+            "status": (fields.get("status") or {}).get("name", ""),
+            "priority": (fields.get("priority") or {}).get("name", ""),
+            "assignee": (fields.get("assignee") or {}).get("displayName", ""),
+            "reporter": (fields.get("reporter") or {}).get("displayName", ""),
+            "created": fields.get("created", ""),
+            "updated": fields.get("updated", ""),
+            "description": fields.get("description", ""),
+        })
+
+    return results
+
+
 async def get_issue_detail(issue_key: str) -> dict[str, Any]:
     """Fetch a single Jira issue's detail via the REST API.
 
