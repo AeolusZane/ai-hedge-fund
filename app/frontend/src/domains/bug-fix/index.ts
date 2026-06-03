@@ -1,4 +1,4 @@
-import { Brain, Code, GitPullRequest, Inbox, TestTube, Wrench } from 'lucide-react';
+import { Brain, Code, GitPullRequest, Inbox, ShieldCheck, TestTube, Wrench } from 'lucide-react';
 import { registerDomain } from '@/core/domain-registry';
 import type { DomainPack } from '@/core/types/domain-pack';
 import type { WorkflowTemplate } from '@/core/types/workflow-template';
@@ -48,6 +48,14 @@ const bugFixDomain: DomainPack = {
         { name: 'Patch', icon: Code },
         { name: 'Test', icon: TestTube },
         { name: 'Open PR', icon: GitPullRequest },
+      ],
+    },
+    {
+      name: 'Controls',
+      icon: ShieldCheck,
+      iconColor: 'text-purple-500',
+      items: [
+        { name: 'Gate', icon: ShieldCheck },
       ],
     },
   ],

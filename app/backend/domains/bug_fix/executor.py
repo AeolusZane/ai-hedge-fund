@@ -133,7 +133,50 @@ def _topological_order(
 _RUNNABLE_TYPES = {
     "jira-issue-input-node",
     "bug-fix-stage-node",
+    "gate-node",
 }
+
+
+# ─── Gate Registry ─────────────────────────────────────────────────
+# Module-level dict for pending gate decisions. Keyed by (run_id, node_id).
+# The executor blocks on an asyncio.Event when it hits a gate node;
+# the API endpoint sets the decision and triggers the event.
+
+import asyncio
+from dataclasses import dataclass, field
+
+
+@dataclass
+class GateDecision:
+    """Result of a human gate review."""
+    action: str  # "approve" | "reject" | "modify"
+    reason: str = ""
+    context: str = ""
+
+
+@dataclass
+class PendingGate:
+    """A gate waiting for human decision."""
+    event: asyncio.Event = field(default_factory=asyncio.Event)
+    decision: Optional[GateDecision] = None
+    upstream_output: Optional[dict[str, Any]] = None
+
+
+_pending_gates: dict[tuple[int, str], PendingGate] = {}
+
+
+def get_pending_gate(run_id: int, node_id: str) -> Optional[PendingGate]:
+    return _pending_gates.get((run_id, node_id))
+
+
+def resolve_gate(run_id: int, node_id: str, decision: GateDecision) -> bool:
+    """Resolve a pending gate. Returns True if the gate was found and resolved."""
+    gate = _pending_gates.get((run_id, node_id))
+    if gate is None:
+        return False
+    gate.decision = decision
+    gate.event.set()
+    return True
 
 
 class BugFixExecutor(WorkflowExecutor):
@@ -256,6 +299,8 @@ class BugFixExecutor(WorkflowExecutor):
             await self._do_patch(node_data, state, done_payload)
         elif stage_name == "Open PR":
             await self._do_open_pr(node_data, state, done_payload)
+        elif node_type == "gate-node":
+            await self._do_gate(node_id, node_data, state, done_payload, context)
         else:
             # Stub: sleep + report Done (Test stage still uses this).
             await asyncio.sleep(delay)
@@ -462,6 +507,68 @@ class BugFixExecutor(WorkflowExecutor):
         if result.get("status") == "blocked":
             done_payload["blocker_reason"] = result.get("blocker_reason", "")
             done_payload["blocker_next_step"] = result.get("blocker_next_step", "")
+
+    async def _do_gate(
+        self,
+        node_id: str,
+        node_data: dict[str, Any],
+        state: dict[str, Any],
+        done_payload: dict[str, Any],
+        context: ExecutorContext,
+    ) -> None:
+        """Gate node — pause execution and wait for human approval.
+
+        Emits a 'Gate' status event with upstream output, then blocks
+        until the API endpoint resolves the gate via resolve_gate().
+        """
+        run_id = state.get("run_id") or context.run_id or 0
+        prompt = node_data.get("prompt") or node_data.get("name") or "Review and approve to continue"
+
+        # Gather upstream output (last completed stage's result)
+        upstream = {}
+        for key in ["analysis", "patch", "open_pr"]:
+            if key in state:
+                upstream[key] = state[key]
+
+        # Register pending gate
+        gate = PendingGate(upstream_output=upstream)
+        _pending_gates[(run_id, node_id)] = gate
+
+        # Emit gate waiting event
+        context.emit(ProgressEvent(
+            node_id=node_id,
+            status="Gate",
+            payload={
+                "prompt": prompt,
+                "upstream_output": upstream,
+                "action": "waiting",
+            },
+        ))
+
+        # Block until decision arrives or run is cancelled
+        try:
+            while not gate.event.is_set():
+                if context.is_cancelled():
+                    raise asyncio.CancelledError()
+                try:
+                    await asyncio.wait_for(gate.event.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    continue
+        finally:
+            _pending_gates.pop((run_id, node_id), None)
+
+        decision = gate.decision
+        if decision is None:
+            done_payload["error"] = "Gate cancelled"
+            return
+
+        done_payload["gate_action"] = decision.action
+        done_payload["gate_reason"] = decision.reason
+
+        if decision.action == "reject":
+            done_payload["error"] = f"Rejected: {decision.reason or 'no reason given'}"
+        elif decision.action == "modify" and decision.context:
+            state["human_context"] = decision.context
 
     async def _do_open_pr(
         self,

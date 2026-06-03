@@ -95,6 +95,7 @@ async def run(
                     timestamp=payload.get("timestamp"),
                     analysis=payload.get("analysis"),
                     chunk=payload.get("chunk"),
+                    payload=payload,
                 )
             )
 
@@ -511,3 +512,69 @@ async def save_chat_messages(
 
     db.commit()
     return {"status": "saved", "count": len(request_data.messages)}
+
+
+# ── Gate Decision Routes ──────────────────────────────────────────────────────
+
+class GateDecisionRequest(BaseModel):
+    """Human decision for a gate node."""
+    action: str  # "approve" | "reject" | "modify"
+    reason: str = ""
+    context: str = ""
+
+
+@router.post("/{domain}/gate/{run_id}/{node_id}")
+async def decide_gate(
+    domain: str,
+    run_id: int,
+    node_id: str,
+    request_data: GateDecisionRequest,
+):
+    """Resolve a pending gate with a human decision.
+
+    The executor's gate node blocks on an asyncio.Event until this
+    endpoint is called. The decision is forwarded to the executor
+    which then continues (approve), aborts (reject), or re-runs
+    with human context (modify).
+    """
+    from app.backend.domains.bug_fix.executor import GateDecision, resolve_gate
+
+    if request_data.action not in ("approve", "reject", "modify"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid action {request_data.action!r}. Must be approve, reject, or modify.",
+        )
+
+    resolved = resolve_gate(
+        run_id,
+        node_id,
+        GateDecision(
+            action=request_data.action,
+            reason=request_data.reason,
+            context=request_data.context,
+        ),
+    )
+    if not resolved:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No pending gate for run {run_id}, node {node_id}",
+        )
+    return {"status": "resolved", "action": request_data.action}
+
+
+@router.get("/{domain}/gates/{run_id}")
+async def list_pending_gates(
+    domain: str,
+    run_id: int,
+):
+    """List all pending gates for a run."""
+    from app.backend.domains.bug_fix.executor import _pending_gates
+
+    gates = []
+    for (rid, nid), gate in _pending_gates.items():
+        if rid == run_id:
+            gates.append({
+                "node_id": nid,
+                "upstream_output": gate.upstream_output,
+            })
+    return {"gates": gates}

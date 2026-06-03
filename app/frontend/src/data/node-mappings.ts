@@ -59,6 +59,18 @@ const nodeTypeDefinitions: Record<string, NodeTypeDefinition> = {
     'Open PR',
     'Open a pull request and link it back to the Jira issue.'
   ),
+  Gate: {
+    createNode: (position) => ({
+      id: `gate_${generateUniqueIdSuffix()}`,
+      type: 'gate-node',
+      position,
+      data: {
+        name: 'Gate',
+        description: 'Human review checkpoint — pauses execution until approved.',
+        status: 'Idle',
+      },
+    }),
+  },
   'External Agent': {
     createNode: (position) => ({
       id: `external_agent_${generateUniqueIdSuffix()}`,

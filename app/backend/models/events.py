@@ -35,6 +35,7 @@ class ProgressUpdateEvent(BaseEvent):
     timestamp: Optional[str] = None
     analysis: Optional[str] = None
     chunk: Optional[str] = None
+    payload: Optional[Dict[str, Any]] = None
 
 class ErrorEvent(BaseEvent):
     """Event indicating an error occurred"""

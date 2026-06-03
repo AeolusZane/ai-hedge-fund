@@ -311,6 +311,15 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
         storeAppendDecisionStep(data.agent, data.decision_step);
         return;
       }
+      // Gate event — forward the full payload so gate nodes can render
+      // their approve/reject UI.
+      if (data.payload?.action === 'waiting' && data.agent) {
+        storeAppendProgress(data.agent, data.status ?? 'Gate');
+        if (data.agent) {
+          updateAgentNode(flowKey, data.agent, 'PAUSED');
+        }
+        return;
+      }
       setProgress((prev) => [
         ...prev,
         { agent: data.agent ?? null, status: data.status ?? '' },
@@ -325,6 +334,7 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
         const nodeStatus =
           data.status === 'Done' ? 'COMPLETE' :
           data.status === 'Error' ? 'ERROR' :
+          data.status === 'Gate' ? 'PAUSED' :
           'IN_PROGRESS';
         updateAgentNode(flowKey, data.agent, nodeStatus);
         // Record stage snapshot in history
