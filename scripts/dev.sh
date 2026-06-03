@@ -123,10 +123,13 @@ start_backend() {
   # nohup detaches from this shell so `dev.sh` can exit while uvicorn
   # keeps running. We record the parent pid; kill_tracked walks the
   # child tree later when we need to stop the worker too.
+  # Note: --reload is intentionally OFF. uvicorn 0.37 reloader has
+  # caused a double-bind ("Address already in use") on this venv on
+  # restart. Use `scripts/dev.sh restart` after backend code edits.
   (
     cd "$ROOT_DIR"
     nohup "$ROOT_DIR/.venv/bin/uvicorn" \
-      app.backend.main:app --reload \
+      app.backend.main:app \
       --host "$BACKEND_HOST" --port "$BACKEND_PORT" \
       >"$BACKEND_LOG" 2>&1 &
     echo $! >"$BACKEND_PID_FILE"
