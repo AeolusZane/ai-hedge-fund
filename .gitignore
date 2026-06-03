@@ -76,3 +76,5 @@ app/backend/alembic/versions/__pycache__/.env.test
 
 # Workspace — cloned repos and run artifacts
 workspace/
+# Python virtualenv (rebuild from pyproject.toml; never commit binaries)
+.venv/
