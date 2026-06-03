@@ -21,6 +21,12 @@ from typing import Any, Awaitable, Callable, Optional
 
 from src.llm.models import ModelProvider, get_model
 from app.backend.domains.bug_fix.experience_store import ExperienceStore
+from app.backend.domains.bug_fix.code_understanding_store import (
+    CodeUnderstanding,
+    CodeUnderstandingStore,
+    build_understanding_context,
+    compute_file_hash,
+)
 
 
 # Callback types
@@ -597,6 +603,50 @@ async def analyze_jira_issue(
     if on_decision_step:
         await on_decision_step(step2)
 
+    # ── Phase 2.5: Code Understanding Cache ─────────────────────────
+    # Extract file paths from search results and look up cached understandings.
+    # If we've analyzed these files before, inject the cached reasoning so
+    # Phase 3 can verify instead of re-reasoning.
+    code_cache_context = ""
+    code_cache_hits: list[dict[str, Any]] = []
+    if repo_path and search_results:
+        try:
+            # Collect unique file paths from search results
+            searched_files: list[str] = []
+            for r in search_results:
+                for m in (r.get("results") or []):
+                    if isinstance(m, dict) and "file" in m:
+                        f = m["file"]
+                        if f not in searched_files:
+                            searched_files.append(f)
+
+            if searched_files:
+                cu_store = CodeUnderstandingStore()
+                code_cache_context, code_cache_hits = build_understanding_context(
+                    cu_store, searched_files, repo_path
+                )
+
+                if code_cache_hits and on_decision_step:
+                    verified = sum(1 for h in code_cache_hits if h["status"] == "verified")
+                    stale = sum(1 for h in code_cache_hits if h["status"] == "stale")
+                    await on_decision_step({
+                        "step": "code_cache_lookup",
+                        "description": f"Found {len(code_cache_hits)} cached understandings ({verified} verified, {stale} stale)",
+                        "details": {
+                            "files_searched": len(searched_files),
+                            "cache_hits": code_cache_hits,
+                            "mode": "reuse" if verified > 0 else "verify",
+                        },
+                        "confidence": 0.9 if verified > 0 else 0.5,
+                    })
+        except Exception as e:
+            logger.warning(f"Code understanding cache lookup failed: {e}")
+
+    # Merge code cache context into experience_context for Phase 3
+    combined_context = experience_context
+    if code_cache_context:
+        combined_context += "\n" + code_cache_context
+
     # ── Phase 3: Hypothesis ─────────────────────────────────────────
     search_results_text = json.dumps(search_results, indent=2, ensure_ascii=False)[:3000]
     if not search_results:
@@ -605,7 +655,7 @@ async def analyze_jira_issue(
     phase3_prompt = _PHASE3_PROMPT.format(
         jira_context=jira_context,
         search_results_text=search_results_text,
-        experience_context=experience_context,
+        experience_context=combined_context,
     )
     phase3_text, phase3_usage = await _llm_invoke(llm, phase3_prompt, on_token)
     total_usage["input_tokens"] += phase3_usage["input_tokens"]
@@ -635,6 +685,59 @@ async def analyze_jira_issue(
     }
     if on_decision_step:
         await on_decision_step(step3_data)
+
+    # ── Store Code Understanding ─────────────────────────────────────
+    # After forming a hypothesis, cache the understanding of the affected
+    # code areas. Next time we hit the same files, we verify instead of
+    # re-reasoning.
+    if repo_path and analysis.get("affected_areas"):
+        try:
+            cu_store = CodeUnderstandingStore()
+            issue_key = jira_detail.get("key", "")
+            bug_type = search_plan.get("bug_type", "unknown")
+
+            for area in analysis["affected_areas"]:
+                # Normalize: strip leading path components that might be repo-relative
+                file_path = area.strip()
+                if not file_path or "/" not in file_path:
+                    continue
+
+                full_path = Path(repo_path) / file_path
+                if not full_path.exists():
+                    continue
+
+                file_hash = compute_file_hash(full_path)
+
+                # Check if we already have an understanding for this file
+                existing = cu_store.lookup(file_path)
+                if existing:
+                    # Verify: does the current analysis match?
+                    is_valid, _ = cu_store.verify(existing.id or 0, file_hash)
+                    if not is_valid:
+                        # Code changed — update the understanding
+                        existing.understanding = analysis.get("root_cause_hypothesis", "")
+                        existing.data_flow = " → ".join(analysis.get("suggested_approach", []))
+                        existing.file_hash = file_hash
+                        if issue_key and issue_key not in existing.issue_keys:
+                            existing.issue_keys.append(issue_key)
+                        if bug_type and bug_type not in existing.bug_types:
+                            existing.bug_types.append(bug_type)
+                        cu_store.store(existing)
+                else:
+                    # New understanding
+                    cu = CodeUnderstanding(
+                        file_path=file_path,
+                        context_key="module",
+                        understanding=analysis.get("root_cause_hypothesis", ""),
+                        call_chain=[],
+                        data_flow=" → ".join(analysis.get("suggested_approach", [])),
+                        file_hash=file_hash,
+                        bug_types=[bug_type] if bug_type else [],
+                        issue_keys=[issue_key] if issue_key else [],
+                    )
+                    cu_store.store(cu)
+        except Exception as e:
+            logger.warning(f"Failed to store code understanding: {e}")
 
     # ── Token tracking ──────────────────────────────────────────────
     analysis["_token_usage"] = {

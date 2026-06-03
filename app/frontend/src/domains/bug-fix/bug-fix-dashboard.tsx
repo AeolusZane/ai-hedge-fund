@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Bug, ExternalLink, History, Play, RefreshCw, CheckCircle2, XCircle, Clock, ChevronRight, Lightbulb, TrendingUp, Tag, Zap } from 'lucide-react';
+import { Bug, ExternalLink, History, Play, RefreshCw, CheckCircle2, XCircle, Clock, ChevronRight, Lightbulb, TrendingUp, Tag, Zap, Code2, FileCode, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -43,6 +43,27 @@ interface GrowthStats {
   top_lessons: Lesson[];
 }
 
+interface CodeUnderstanding {
+  id: number;
+  created_at: string;
+  updated_at: string;
+  file_path: string;
+  context_key: string;
+  understanding: string;
+  call_chain: string[];
+  data_flow: string;
+  verification_count: number;
+  last_verified: string | null;
+  bug_types: string[];
+  issue_keys: string[];
+}
+
+interface CodeUnderstandingStats {
+  total: number;
+  total_verifications: number;
+  unique_files: number;
+}
+
 const STAGES = ['Analyze', 'Patch', 'Test', 'Open PR'];
 
 const statusConfig: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
@@ -62,6 +83,8 @@ export function BugFixDashboard() {
   const [growthStats, setGrowthStats] = useState<GrowthStats | null>(null);
   const [tagFilter, setTagFilter] = useState('');
   const [triggering, setTriggering] = useState<string | null>(null);
+  const [codeUnderstandings, setCodeUnderstandings] = useState<CodeUnderstanding[]>([]);
+  const [codeStats, setCodeStats] = useState<CodeUnderstandingStats | null>(null);
 
   const fetchBugs = useCallback(async () => {
     setLoading(true);
@@ -136,6 +159,30 @@ export function BugFixDashboard() {
     }
   }, []);
 
+  const fetchCodeUnderstandings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/v1/experiences/code-understandings');
+      if (res.ok) {
+        const data = await res.json();
+        setCodeUnderstandings(data || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch code understandings:', err);
+    }
+  }, []);
+
+  const fetchCodeStats = useCallback(async () => {
+    try {
+      const res = await fetch('/api/v1/experiences/code-understandings/stats');
+      if (res.ok) {
+        const data = await res.json();
+        setCodeStats(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch code understanding stats:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchBugs();
     fetchRuns();
@@ -150,8 +197,10 @@ export function BugFixDashboard() {
     if (tab === 'growth') {
       fetchLessons();
       fetchGrowth();
+      fetchCodeUnderstandings();
+      fetchCodeStats();
     }
-  }, [tab, fetchLessons, fetchGrowth]);
+  }, [tab, fetchLessons, fetchGrowth, fetchCodeUnderstandings, fetchCodeStats]);
 
   const activeRuns = runs.filter(r => r.status === 'running' || r.status === 'in_progress' || r.status === 'idle');
   const completedRuns = runs.filter(r => r.status === 'complete' || r.status === 'error');
@@ -475,6 +524,113 @@ export function BugFixDashboard() {
                 </Card>
               ))
             )}
+            {/* Code Understanding Cache Section */}
+            <div className="mt-8 pt-8 border-t">
+              <div className="flex items-center gap-2 mb-4">
+                <Code2 className="h-5 w-5 text-purple-500" />
+                <h3 className="text-lg font-semibold">Code Understanding Cache</h3>
+              </div>
+              
+              {/* Stats */}
+              {codeStats && (
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <Card>
+                    <CardContent className="p-3 text-center">
+                      <FileCode className="h-5 w-5 mx-auto mb-1 text-purple-500" />
+                      <p className="text-2xl font-bold">{codeStats.total}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Cached</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-3 text-center">
+                      <Check className="h-5 w-5 mx-auto mb-1 text-green-500" />
+                      <p className="text-2xl font-bold">{codeStats.total_verifications}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Verified</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-3 text-center">
+                      <FileCode className="h-5 w-5 mx-auto mb-1 text-blue-500" />
+                      <p className="text-2xl font-bold">{codeStats.unique_files}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Files</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Code Understanding List */}
+              {codeUnderstandings.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Code2 className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                  <p>No code understandings cached yet</p>
+                  <p className="text-sm mt-1">Will be populated as bugs are analyzed</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {codeUnderstandings.map(cu => (
+                    <Card key={cu.id} className="overflow-hidden">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <FileCode className="h-4 w-4 text-purple-500 shrink-0" />
+                              <p className="text-sm font-mono font-medium truncate">{cu.file_path}</p>
+                            </div>
+                            {cu.context_key && (
+                              <Badge variant="secondary" className="text-[10px] px-1.5 mb-2">
+                                {cu.context_key}
+                              </Badge>
+                            )}
+                          </div>
+                          {cu.verification_count > 0 && (
+                            <div className="shrink-0 flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
+                              <Check className="h-3 w-3" />
+                              {cu.verification_count}
+                            </div>
+                          )}
+                        </div>
+                        
+                        <p className="text-sm text-muted-foreground mb-2 line-clamp-3">
+                          {cu.understanding}
+                        </p>
+                        
+                        {cu.data_flow && (
+                          <div className="text-xs text-muted-foreground mb-2">
+                            <span className="font-medium">Data flow:</span> {cu.data_flow}
+                          </div>
+                        )}
+                        
+                        {cu.call_chain.length > 0 && (
+                          <div className="text-xs text-muted-foreground mb-2">
+                            <span className="font-medium">Call chain:</span> {cu.call_chain.join(' → ')}
+                          </div>
+                        )}
+                        
+                        <div className="flex items-center gap-2 flex-wrap mt-2">
+                          {cu.bug_types.map(bt => (
+                            <Badge key={bt} variant="outline" className="text-[10px] px-1.5">
+                              {bt}
+                            </Badge>
+                          ))}
+                          {cu.issue_keys.map(ik => (
+                            <span key={ik} className="text-[10px] text-muted-foreground font-mono">
+                              {ik}
+                            </span>
+                          ))}
+                        </div>
+                        
+                        <div className="flex items-center gap-3 mt-3 text-[10px] text-muted-foreground">
+                          <span>Created: {new Date(cu.created_at).toLocaleDateString()}</span>
+                          {cu.last_verified && (
+                            <span>Verified: {new Date(cu.last_verified).toLocaleDateString()}</span>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>

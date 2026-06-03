@@ -349,3 +349,51 @@ async def seed_experiences():
         "ids": stored_ids,
         "total": store.count(),
     }
+
+
+# ── Code Understanding Cache Routes ─────────────────────────────────
+
+from app.backend.domains.bug_fix.code_understanding_store import CodeUnderstandingStore
+
+
+@router.get("/code-understandings")
+async def list_code_understandings(
+    limit: int = Query(50, ge=1, le=200),
+):
+    """List all cached code understandings."""
+    store = CodeUnderstandingStore()
+    items = store.list_all(limit=limit)
+    return [
+        {
+            "id": cu.id or 0,
+            "created_at": cu.created_at or "",
+            "updated_at": cu.updated_at or "",
+            "file_path": cu.file_path,
+            "context_key": cu.context_key,
+            "understanding": cu.understanding,
+            "call_chain": cu.call_chain,
+            "data_flow": cu.data_flow,
+            "verification_count": cu.verification_count,
+            "last_verified": cu.last_verified,
+            "bug_types": cu.bug_types,
+            "issue_keys": cu.issue_keys,
+        }
+        for cu in items
+    ]
+
+
+@router.get("/code-understandings/stats")
+async def code_understanding_stats():
+    """Get aggregate stats about cached code understandings."""
+    store = CodeUnderstandingStore()
+    return store.stats()
+
+
+@router.delete("/code-understandings/{cu_id}")
+async def delete_code_understanding(cu_id: int):
+    """Delete a cached code understanding."""
+    store = CodeUnderstandingStore()
+    deleted = store.delete(cu_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Code understanding not found")
+    return {"deleted": True, "id": cu_id}
