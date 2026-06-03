@@ -156,6 +156,15 @@ async def chat_with_node(
     
     # Set up environment with API keys
     env = os.environ.copy()
+    
+    # Pass through ANTHROPIC_BASE_URL and model overrides from .env
+    for env_var in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+                     "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
+                     "ANTHROPIC_DEFAULT_HAIKU_MODEL"):
+        val = os.getenv(env_var)
+        if val:
+            env[env_var] = val
+    
     if request.api_keys:
         # Map common API key names to environment variables
         key_mapping = {
