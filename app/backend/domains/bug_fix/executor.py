@@ -653,6 +653,40 @@ class BugFixExecutor(WorkflowExecutor):
         elif decision.action == "modify" and decision.context:
             state["human_context"] = decision.context
 
+        # ── Experience Storage: save approved/modified cases ────────
+        if decision.action in ("approve", "modify"):
+            try:
+                from app.backend.domains.bug_fix.experience_store import (
+                    ExperienceStore,
+                    build_experience_from_state,
+                )
+                store = ExperienceStore()
+                exp = build_experience_from_state(state, gate_action=decision.action)
+                if decision.context:
+                    exp.human_context = decision.context
+                exp_id = store.store(exp)
+                done_payload["experience_stored"] = True
+                done_payload["experience_id"] = exp_id
+                # Emit a progress event so the frontend knows
+                context.emit(ProgressEvent(
+                    node_id=node_id,
+                    status="Experience Stored",
+                    payload={
+                        "type": "experience_stored",
+                        "experience_id": exp_id,
+                        "issue_key": exp.issue_key,
+                        "bug_type": exp.bug_type,
+                        "confidence": exp.confidence,
+                    },
+                ))
+            except Exception as e:
+                # Non-fatal: log but don't block the pipeline
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Failed to store experience: {e}"
+                )
+                done_payload["experience_stored"] = False
+
     async def _do_open_pr(
         self,
         node_data: dict[str, Any],

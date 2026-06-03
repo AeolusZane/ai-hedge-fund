@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from src.llm.models import ModelProvider, get_model
+from app.backend.domains.bug_fix.experience_store import ExperienceStore
 
 
 # Callback types
@@ -271,6 +272,8 @@ _PHASE1_PROMPT = """\
 You are a senior engineer investigating a bug. Based on the Jira issue below, \
 create a search plan to investigate the root cause in the codebase.
 
+{experience_context}
+
 {jira_context}
 
 Return ONLY a JSON object (no prose, no markdown fences):
@@ -299,6 +302,8 @@ Rules:
 _PHASE3_PROMPT = """\
 You are a senior engineer who has investigated a bug. You started with a Jira \
 issue and searched the codebase. Now form your root cause hypothesis.
+
+{experience_context}
 
 ## Jira Issue
 {jira_context}
@@ -446,8 +451,64 @@ async def analyze_jira_issue(
     jira_context = _build_jira_context(jira_detail)
     total_usage = {"input_tokens": 0, "output_tokens": 0}
 
+    # ── Phase 0: Experience Recall ──────────────────────────────────
+    experience_context = ""
+    similar_cases: list[dict[str, Any]] = []
+    try:
+        store = ExperienceStore()
+        query_text = f"{jira_detail.get('summary', '')} {jira_detail.get('description', '')[:300]}"
+        experiences = store.search_similar(query_text, limit=3, min_confidence=0.3)
+        if experiences:
+            similar_cases = []
+            case_texts = []
+            for i, exp in enumerate(experiences, 1):
+                case_texts.append(
+                    f"### Historical Case #{i}: {exp.issue_key}\n"
+                    f"- Bug type: {exp.bug_type}\n"
+                    f"- Root cause: {exp.root_cause}\n"
+                    f"- Fix strategy: {exp.patch_strategy or '(not recorded)'}\n"
+                    f"- Files changed: {', '.join(exp.files_changed) or '(not recorded)'}\n"
+                    f"- Confidence: {exp.confidence:.0%}\n"
+                )
+                similar_cases.append({
+                    "id": exp.id,
+                    "issue_key": exp.issue_key,
+                    "bug_type": exp.bug_type,
+                    "root_cause": exp.root_cause,
+                    "confidence": exp.confidence,
+                    "files_changed": exp.files_changed,
+                })
+            experience_context = (
+                "## Historical Similar Cases (from team knowledge base)\n"
+                "The following cases were previously solved by the team. "
+                "Use them as reference — the current bug may share the same root cause.\n\n"
+                + "\n".join(case_texts)
+            )
+    except Exception as e:
+        # Non-fatal: continue without experience recall
+        logger_msg = f"Experience recall failed: {e}"
+        import logging
+        logging.getLogger(__name__).warning(logger_msg)
+
+    # Emit experience recall decision step
+    recall_step = {
+        "step": "experience_recall",
+        "description": f"Found {len(similar_cases)} similar historical cases" if similar_cases else "No similar cases found",
+        "details": {
+            "cases_found": len(similar_cases),
+            "cases": similar_cases,
+            "mode": "reuse" if similar_cases else "generate",
+        },
+        "confidence": 0.8 if similar_cases else 0.0,
+    }
+    if on_decision_step:
+        await on_decision_step(recall_step)
+
     # ── Phase 1: Search Plan ────────────────────────────────────────
-    phase1_prompt = _PHASE1_PROMPT.format(jira_context=jira_context)
+    phase1_prompt = _PHASE1_PROMPT.format(
+        jira_context=jira_context,
+        experience_context=experience_context,
+    )
     phase1_text, phase1_usage = await _llm_invoke(llm, phase1_prompt, on_token)
     total_usage["input_tokens"] += phase1_usage["input_tokens"]
     total_usage["output_tokens"] += phase1_usage["output_tokens"]
@@ -509,6 +570,7 @@ async def analyze_jira_issue(
     phase3_prompt = _PHASE3_PROMPT.format(
         jira_context=jira_context,
         search_results_text=search_results_text,
+        experience_context=experience_context,
     )
     phase3_text, phase3_usage = await _llm_invoke(llm, phase3_prompt, on_token)
     total_usage["input_tokens"] += phase3_usage["input_tokens"]
