@@ -21,7 +21,7 @@ interface NodeChatProps {
   streamingOutput?: string;
   progressTimeline?: string;
   nodeStatus?: string;
-  repoPath?: string;
+  repoUrl?: string;
   workspacePath?: string;
   onConfigUpdate?: (key: string, value: string) => void;
   onRetry?: () => void;
@@ -36,7 +36,7 @@ export function NodeChat({
   streamingOutput,
   progressTimeline,
   nodeStatus,
-  repoPath,
+  repoUrl,
   workspacePath,
   onConfigUpdate,
   onRetry,
@@ -82,7 +82,7 @@ export function NodeChat({
           streaming_output: streamingOutput,
           progress_timeline: progressTimeline,
           node_status: nodeStatus,
-          repo_path: repoPath,
+          repo_url: repoUrl,
           workspace_path: workspacePath,
         }),
         signal: abortControllerRef.current.signal,

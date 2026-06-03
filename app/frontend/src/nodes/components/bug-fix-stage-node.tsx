@@ -20,7 +20,7 @@ import { getStatusColor } from '../utils';
 import { NodeShell } from './node-shell';
 
 const STAGES_THAT_USE_AN_LLM = new Set(['Analyze']);
-const STAGES_THAT_NEED_REPO_PATH = new Set(['Patch']);
+const STAGES_THAT_NEED_REPO_URL = new Set(['Patch']);
 const STAGES_THAT_NEED_TARGET_BRANCH = new Set(['Patch']);
 const STAGES_THAT_NEED_PR_CONFIG = new Set(['Open PR']);
 
@@ -122,7 +122,7 @@ export function BugFixStageNode({
   }, [status, progressPercent, progressItems, outputSummary]);
 
   const needsModel = STAGES_THAT_USE_AN_LLM.has(data.name);
-  const needsRepoPath = STAGES_THAT_NEED_REPO_PATH.has(data.name);
+  const needsRepoUrl = STAGES_THAT_NEED_REPO_URL.has(data.name);
   const needsTargetBranch = STAGES_THAT_NEED_TARGET_BRANCH.has(data.name);
   const needsPrConfig = STAGES_THAT_NEED_PR_CONFIG.has(data.name);
 
@@ -131,8 +131,8 @@ export function BugFixStageNode({
   const [modelName, setModelName] = useNodeState<string>(id, 'modelName', '');
   const [, setModelProvider] = useNodeState<string>(id, 'modelProvider', '');
 
-  // Repo path (Patch only)
-  const [repoPath, setRepoPath] = useNodeState<string>(id, 'repoPath', '');
+  // Repo URL (Patch only)
+  const [repoUrl, setRepoUrl] = useNodeState<string>(id, 'repoUrl', '');
 
   // Target branch (Patch only)
   const [targetBranch, setTargetBranch] = useNodeState<string>(id, 'targetBranch', 'main');
@@ -230,7 +230,7 @@ export function BugFixStageNode({
             />
           </div>
         )}
-        {needsRepoPath && field('Repo path', repoPath, setRepoPath, '/absolute/path/to/repo')}
+        {needsRepoUrl && field('Repo URL', repoUrl, setRepoUrl, 'https://github.com/org/repo.git')}
         {needsTargetBranch && field('Target branch', targetBranch, setTargetBranch, 'main')}
         {needsPrConfig && (
           <>

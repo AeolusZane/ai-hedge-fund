@@ -182,21 +182,20 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
       .map((n) => {
         const internal = getNodeInternalState(n.id);
         if (!internal) return n;
-        // Fold the per-node persisted state into node.data so the
-        // backend can read modelName, repoPath, repoUrl, targetBranch, etc. directly.
-        return {
-          ...n,
-          data: {
-            ...n.data,
-            ...(internal.modelName ? { modelName: internal.modelName } : {}),
-            ...(internal.modelProvider ? { modelProvider: internal.modelProvider } : {}),
-            ...(internal.repoPath ? { repoPath: internal.repoPath } : {}),
-            ...(internal.repoUrl ? { repoUrl: internal.repoUrl } : {}),
-            ...(internal.targetBranch ? { targetBranch: internal.targetBranch } : {}),
-            ...(internal.pushRemote ? { pushRemote: internal.pushRemote } : {}),
-            ...(internal.prTargetRemote ? { prTargetRemote: internal.prTargetRemote } : {}),
-          },
-        };
+         // Fold the per-node persisted state into node.data so the
+         // backend can read modelName, repoUrl, targetBranch, etc. directly.
+         return {
+           ...n,
+           data: {
+             ...n.data,
+             ...(internal.modelName ? { modelName: internal.modelName } : {}),
+             ...(internal.modelProvider ? { modelProvider: internal.modelProvider } : {}),
+             ...(internal.repoUrl ? { repoUrl: internal.repoUrl } : {}),
+             ...(internal.targetBranch ? { targetBranch: internal.targetBranch } : {}),
+             ...(internal.pushRemote ? { pushRemote: internal.pushRemote } : {}),
+             ...(internal.prTargetRemote ? { prTargetRemote: internal.prTargetRemote } : {}),
+           },
+         };
       });
     const runnableIds = new Set(runnableNodes.map((n) => n.id));
     const runnableEdges = reactFlow

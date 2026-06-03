@@ -198,7 +198,7 @@ class NodeChatRequest(BaseModel):
     streaming_output: Optional[str] = None
     progress_timeline: Optional[str] = None
     node_status: Optional[str] = None
-    repo_path: Optional[str] = None
+    repo_url: Optional[str] = None
     workspace_path: Optional[str] = None
     model_name: Optional[str] = None
     model_provider: Optional[str] = None
@@ -234,7 +234,7 @@ async def node_chat(
         streaming_output=request_data.streaming_output,
         progress_timeline=request_data.progress_timeline,
         node_status=request_data.node_status,
-        repo_path=request_data.repo_path,
+        repo_url=request_data.repo_url,
         workspace_path=request_data.workspace_path,
         model_name=request_data.model_name,
         model_provider=request_data.model_provider,

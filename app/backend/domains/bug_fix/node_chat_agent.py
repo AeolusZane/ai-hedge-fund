@@ -47,7 +47,7 @@ class NodeChatRequest(BaseModel):
     streaming_output: Optional[str] = None
     progress_timeline: Optional[str] = None
     node_status: Optional[str] = None
-    repo_path: Optional[str] = None
+    repo_url: Optional[str] = None
     workspace_path: Optional[str] = None
     model_name: Optional[str] = None
     model_provider: Optional[str] = None
@@ -62,7 +62,7 @@ def _build_system_prompt(request: NodeChatRequest) -> str:
     error_section = f"\n\nError:\n{request.error_info}" if request.error_info else ""
     
     # Workspace / repo info
-    work_dir = request.workspace_path or request.repo_path
+    work_dir = request.workspace_path
     work_section = ""
     if work_dir:
         work_section = f"\n\nWorking directory: {work_dir}\nYou can read and write files in this directory."
@@ -142,7 +142,7 @@ async def chat_with_node(
     user_prompt = _build_user_prompt(request)
     
     # Determine working directory
-    cwd = request.workspace_path or request.repo_path or os.getcwd()
+    cwd = request.workspace_path or os.getcwd()
     
     # Build CLI command
     cmd = [

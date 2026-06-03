@@ -48,7 +48,7 @@ export function StepDetailPanel() {
   const nodeConfig = useMemo(() => {
     if (!nodeData) return {};
     const config: Record<string, unknown> = {};
-    for (const key of ['modelName', 'modelProvider', 'repoPath', 'targetBranch', 'pushRemote', 'prTargetRemote']) {
+    for (const key of ['modelName', 'modelProvider', 'repoPath', 'repoUrl', 'targetBranch', 'pushRemote', 'prTargetRemote']) {
       if (nodeData[key] !== undefined && nodeData[key] !== '') {
         config[key] = nodeData[key];
       }
@@ -400,7 +400,7 @@ export function StepDetailPanel() {
           streamingOutput={stream}
           progressTimeline={progressItems.map(p => `${fmtTime(p.ts)} ${p.status}`).join('\n')}
           nodeStatus={status}
-          repoPath={nodeConfig.repoPath as string | undefined}
+          repoUrl={nodeConfig.repoUrl as string | undefined}
           workspacePath={runId ? `/workspace/${runId}` : undefined}
           onConfigUpdate={handleConfigUpdate}
           onRetry={handleRetry}
