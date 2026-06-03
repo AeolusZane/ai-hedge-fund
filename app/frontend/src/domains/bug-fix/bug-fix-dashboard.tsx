@@ -39,21 +39,12 @@ export function BugFixDashboard() {
   const [runs, setRuns] = useState<BugFixRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<'active' | 'bugs' | 'history'>('active');
-  const [selectedProject, setSelectedProject] = useState('');
   const [triggering, setTriggering] = useState<string | null>(null);
-
-  const projects = [
-    { key: '', name: '所有项目' },
-    { key: 'BI', name: 'BI' },
-    { key: 'REPORT', name: 'Report' },
-    { key: 'KERNEL', name: 'Kernel' },
-    { key: 'SLN', name: 'SLN' },
-  ];
 
   const fetchBugs = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/bug-fix/jira/bugs?project=${selectedProject}`);
+      const res = await fetch('/bug-fix/jira/bugs');
       if (res.ok) {
         const data = await res.json();
         setBugs(data.bugs || []);
@@ -63,7 +54,7 @@ export function BugFixDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [selectedProject]);
+  }, []);
 
   const fetchRuns = useCallback(async () => {
     try {
@@ -85,7 +76,6 @@ export function BugFixDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jira_issue: issueKey,
-          project_key: selectedProject,
         }),
       });
       if (res.ok) {
@@ -121,20 +111,9 @@ export function BugFixDashboard() {
             <Bug className="h-5 w-5 text-red-500" />
             <h1 className="text-lg font-bold">Bug Fix</h1>
           </div>
-          <div className="flex items-center gap-2">
-            <select
-              value={selectedProject}
-              onChange={(e) => setSelectedProject(e.target.value)}
-              className="text-sm px-2 py-1.5 border rounded-md bg-background"
-            >
-              {projects.map(p => (
-                <option key={p.key} value={p.key}>{p.name}</option>
-              ))}
-            </select>
-            <Button onClick={() => { fetchBugs(); fetchRuns(); }} variant="ghost" size="icon" className="h-8 w-8">
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            </Button>
-          </div>
+          <Button onClick={() => { fetchBugs(); fetchRuns(); }} variant="ghost" size="icon" className="h-8 w-8">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
         </div>
       </header>
 
@@ -232,7 +211,7 @@ export function BugFixDashboard() {
           ) : bugs.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground">
               <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-green-500 opacity-40" />
-              <p>No open bugs{selectedProject ? ` in ${selectedProject}` : ''}</p>
+              <p>No bugs found</p>
             </div>
           ) : (
             bugs.map(bug => {

@@ -63,29 +63,22 @@ async def search_bugs(
     """
     base_url, username, token = _get_jira_config()
 
-    # Default bug types for Chinese Jira instances
-    default_bug_types = '"客户BUG","一般BUG","内测BUG","缺陷","BUG"'
-    # Default closed statuses for Chinese Jira instances
-    default_closed_statuses = '"已解决","终止","被否决","结束","完成","关闭","终止开发"'
-
     # Build JQL query
     jql_parts = []
 
+    if assignee_current_user:
+        jql_parts.append(f'assignee = {username}')
+
     if project_key:
-        jql_parts.append(f'project = "{project_key}"')
+        jql_parts.append(f'project = {project_key}')
 
     if issue_type:
-        jql_parts.append(f'issuetype = "{issue_type}"')
+        jql_parts.append(f'issuetype = {issue_type}')
     else:
-        jql_parts.append(f'issuetype in ({default_bug_types})')
+        jql_parts.append('issuetype in (一般BUG, 客户BUG, 开发测试任务)')
 
     if status:
-        jql_parts.append(f'status = "{status}"')
-    else:
-        jql_parts.append(f'status not in ({default_closed_statuses})')
-
-    if assignee_current_user:
-        jql_parts.append('assignee = currentUser()')
+        jql_parts.append(f'status = {status}')
 
     jql = " AND ".join(jql_parts) + " ORDER BY updated DESC"
 
