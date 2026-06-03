@@ -30,6 +30,7 @@ import {
   resetNodeOutput as storeResetNodeOutput,
   setPhase as storeSetPhase,
   setResult as storeSetResult,
+  setRunId as storeSetRunId,
 } from './node-output-store';
 import { startRun as historyStartRun, finishRun as historyFinishRun, updateStageSnapshot as historyUpdateStageSnapshot } from './run-history-store';
 
@@ -284,7 +285,12 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
 
   const handleEvent = (data: any) => {
     if (!data || typeof data !== 'object') return;
-    if (data.type === 'progress') {
+    if (data.type === 'start') {
+      // Capture run_id for workspace access
+      if (data.run_id) {
+        storeSetRunId(data.run_id);
+      }
+    } else if (data.type === 'progress') {
       // Streaming token chunk — append to that agent's live buffer
       // instead of polluting the status timeline with one row per token.
       if (typeof data.chunk === 'string') {

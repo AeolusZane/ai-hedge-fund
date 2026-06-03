@@ -31,6 +31,8 @@ interface NodeOutputState {
   /** Mirrors the run dialog's phase so per-node dialogs can show a
    *  blinking cursor while their stage is still running. */
   phase: RunPhase;
+  /** Current flow run ID for workspace access. */
+  runId: number | null;
 }
 
 const initial: NodeOutputState = {
@@ -38,6 +40,7 @@ const initial: NodeOutputState = {
   progressByAgent: {},
   result: null,
   phase: 'idle',
+  runId: null,
 };
 
 // ─── localStorage helpers ────────────────────────────────────
@@ -144,6 +147,11 @@ export function setResult(result: any): void {
 
 export function setPhase(phase: RunPhase): void {
   state = { ...state, phase };
+  emit();
+}
+
+export function setRunId(runId: number | null): void {
+  state = { ...state, runId };
   emit();
 }
 

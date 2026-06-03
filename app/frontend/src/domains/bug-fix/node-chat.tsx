@@ -19,6 +19,7 @@ interface NodeChatProps {
   nodeConfig: Record<string, unknown>;
   errorInfo?: string;
   streamingOutput?: string;
+  progressTimeline?: string;
   nodeStatus?: string;
   repoPath?: string;
   onConfigUpdate?: (key: string, value: string) => void;
@@ -32,6 +33,7 @@ export function NodeChat({
   nodeConfig,
   errorInfo,
   streamingOutput,
+  progressTimeline,
   nodeStatus,
   repoPath,
   onConfigUpdate,
@@ -76,6 +78,7 @@ export function NodeChat({
           node_config: nodeConfig,
           error_info: errorInfo,
           streaming_output: streamingOutput,
+          progress_timeline: progressTimeline,
           node_status: nodeStatus,
           repo_path: repoPath,
         }),
@@ -178,9 +181,9 @@ export function NodeChat({
   };
 
   return (
-    <div className="flex flex-col h-full border-t">
+    <div className="flex flex-col border-t" style={{ height: '280px' }}>
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3 min-h-[150px] max-h-[300px]">
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3">
         {messages.length === 0 && (
           <div className="text-xs text-muted-foreground text-center py-4">
             {nodeStatus === 'IN_PROGRESS'

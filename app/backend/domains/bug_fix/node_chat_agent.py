@@ -93,6 +93,7 @@ class NodeChatRequest(BaseModel):
     node_config: dict[str, Any] = Field(default_factory=dict)
     error_info: Optional[str] = None
     streaming_output: Optional[str] = None
+    progress_timeline: Optional[str] = None
     node_status: Optional[str] = None
     repo_path: Optional[str] = None
     model_name: Optional[str] = None
@@ -115,6 +116,11 @@ def _build_system_prompt(request: NodeChatRequest) -> str:
             output = "..." + output[-2000:]
         streaming_section = f"\n\nCurrent progress (live output):\n{output}"
     
+    # Add progress timeline for context
+    timeline_section = ""
+    if request.progress_timeline:
+        timeline_section = f"\n\nProgress timeline:\n{request.progress_timeline}"
+    
     status_section = f"\nNode status: {request.node_status}" if request.node_status else ""
 
     return f"""You are an assistant for a CI/CD pipeline node.
@@ -123,7 +129,7 @@ Current node: {request.node_name} (type: {request.node_type})
 Node ID: {request.node_id}{status_section}
 
 Current configuration:
-{config_str}{error_section}{repo_section}{streaming_section}
+{config_str}{error_section}{repo_section}{streaming_section}{timeline_section}
 
 Your capabilities:
 1. Report current progress and explain what's happening (when node is running)
@@ -135,7 +141,7 @@ Your capabilities:
 
 Guidelines:
 - Be concise and actionable
-- When the node is running, summarize the current progress based on the live output
+- When the node is running, summarize the current progress based on the live output and timeline
 - When suggesting fixes, explain the reasoning
 - Use tools to make actual changes, don't just describe them
 - After updating config, suggest retry if appropriate

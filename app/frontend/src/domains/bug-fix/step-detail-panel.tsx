@@ -3,12 +3,13 @@ import { Button } from '@/components/ui/button';
 import { NodeChat } from '@/domains/bug-fix/node-chat';
 import { useNodeOutput } from '@/domains/bug-fix/node-output-store';
 import { useStepDetailTarget, closeStepDetail } from '@/domains/bug-fix/step-detail-context';
+import { WorkspaceBrowser } from '@/domains/bug-fix/workspace-browser';
 import { cn } from '@/lib/utils';
 import type { NodeStatus } from '@/nodes/utils';
 import { getStatusColor, elapsedSeconds } from '@/nodes/utils';
 import { useReactFlow } from '@xyflow/react';
-import { CheckCircle2, Loader2, XCircle, Pause, ArrowLeft, RotateCcw } from 'lucide-react';
-import { useMemo } from 'react';
+import { CheckCircle2, Loader2, XCircle, Pause, ArrowLeft, RotateCcw, FolderOpen } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
 function StatusIcon({ status }: { status: NodeStatus }) {
   switch (status) {
@@ -31,6 +32,7 @@ export function StepDetailPanel() {
   const target = useStepDetailTarget();
   const nodeOutput = useNodeOutput();
   const reactFlow = useReactFlow();
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
 
   if (!target) return null;
 
@@ -38,6 +40,7 @@ export function StepDetailPanel() {
   const stream = nodeOutput.streamingByAgent[agentId] ?? '';
   const progressItems = nodeOutput.progressByAgent[agentId] ?? [];
   const result = nodeOutput.result;
+  const runId = nodeOutput.runId;
 
   // Get the actual node data for chat context
   const node = reactFlow.getNode(agentId);
@@ -125,6 +128,17 @@ export function StepDetailPanel() {
         )}>
           {status}
         </Badge>
+        {runId && status !== 'IDLE' && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => setWorkspaceOpen(true)}
+            title="Browse workspace files"
+          >
+            <FolderOpen className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
       {/* Content */}
@@ -384,6 +398,7 @@ export function StepDetailPanel() {
           nodeConfig={nodeConfig}
           errorInfo={resultSlice?.error}
           streamingOutput={stream}
+          progressTimeline={progressItems.map(p => `${fmtTime(p.ts)} ${p.status}`).join('\n')}
           nodeStatus={status}
           repoPath={nodeConfig.repoPath as string | undefined}
           onConfigUpdate={handleConfigUpdate}
@@ -402,6 +417,16 @@ export function StepDetailPanel() {
           <RotateCcw className="h-3 w-3" /> Re-run from this step (coming soon)
         </Button>
       </div>
+
+      {/* Workspace Browser Modal */}
+      {runId && (
+        <WorkspaceBrowser
+          domain="bug_fix"
+          runId={runId}
+          isOpen={workspaceOpen}
+          onClose={() => setWorkspaceOpen(false)}
+        />
+      )}
     </div>
   );
 }

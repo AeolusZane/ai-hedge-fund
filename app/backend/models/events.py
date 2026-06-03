@@ -18,6 +18,7 @@ class StartEvent(BaseEvent):
 
     type: Literal["start"] = "start"
     timestamp: Optional[str] = None
+    run_id: Optional[int] = None
 
 class ProgressUpdateEvent(BaseEvent):
     """Event containing an agent's progress update.

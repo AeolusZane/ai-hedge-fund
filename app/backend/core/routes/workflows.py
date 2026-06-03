@@ -103,13 +103,14 @@ async def run(
             api_keys=api_keys or {},
             emit=emit,
             is_cancelled=lambda: cancelled["value"],
+            run_id=flow_run.id if flow_run else None,
         )
 
         try:
             run_task = asyncio.create_task(executor.run(request_data.payload, context))
             disconnect_task = asyncio.create_task(wait_for_disconnect())
 
-            yield StartEvent().to_sse()
+            yield StartEvent(run_id=flow_run.id if flow_run else None).to_sse()
 
             while not run_task.done():
                 if disconnect_task.done():
@@ -195,6 +196,7 @@ class NodeChatRequest(BaseModel):
     node_config: dict[str, Any] = {}
     error_info: Optional[str] = None
     streaming_output: Optional[str] = None
+    progress_timeline: Optional[str] = None
     node_status: Optional[str] = None
     repo_path: Optional[str] = None
     model_name: Optional[str] = None
@@ -229,6 +231,7 @@ async def node_chat(
         node_config=request_data.node_config,
         error_info=request_data.error_info,
         streaming_output=request_data.streaming_output,
+        progress_timeline=request_data.progress_timeline,
         node_status=request_data.node_status,
         repo_path=request_data.repo_path,
         model_name=request_data.model_name,
@@ -299,6 +302,7 @@ async def retry_node(
             api_keys=api_keys or {},
             emit=emit,
             is_cancelled=lambda: cancelled["value"],
+            run_id=flow_run.id if flow_run else None,
         )
 
         # Build retry payload: restore state from previous run + apply config updates
@@ -313,7 +317,7 @@ async def retry_node(
             run_task = asyncio.create_task(executor.run(retry_payload, context))
             disconnect_task = asyncio.create_task(wait_for_disconnect())
 
-            yield StartEvent().to_sse()
+            yield StartEvent(run_id=flow_run.id if flow_run else None).to_sse()
 
             while not run_task.done():
                 if disconnect_task.done():
@@ -382,3 +386,64 @@ async def retry_node(
                 disconnect_task.cancel()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# ── Workspace / Sandbox Routes ────────────────────────────────────────────────
+
+@router.get("/{domain}/workspace/{run_id}/files")
+async def list_workspace_files(
+    domain: str,
+    run_id: int,
+    path: str = "/",
+    max_depth: int = 3,
+):
+    """List files in a run's workspace directory.
+
+    This is a deterministic file browser — reads directly from the filesystem,
+    no LLM involved. Returns a flat list of entries with type and size.
+    """
+    from app.backend.core.workspace import list_files, workspace_exists
+
+    if not workspace_exists(run_id):
+        raise HTTPException(status_code=404, detail=f"Workspace for run {run_id} not found")
+
+    result = list_files(run_id, path=path, max_depth=max_depth)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.get("/{domain}/workspace/{run_id}/file")
+async def read_workspace_file(
+    domain: str,
+    run_id: int,
+    path: str,
+):
+    """Read a single file from a run's workspace.
+
+    Returns file content as text. Max 1MB by default.
+    """
+    from app.backend.core.workspace import read_file, workspace_exists
+
+    if not workspace_exists(run_id):
+        raise HTTPException(status_code=404, detail=f"Workspace for run {run_id} not found")
+
+    result = read_file(run_id, path=path)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.delete("/{domain}/workspace/{run_id}")
+async def delete_workspace(
+    domain: str,
+    run_id: int,
+):
+    """Delete a run's workspace directory and all its contents."""
+    from app.backend.core.workspace import cleanup_workspace, workspace_exists
+
+    if not workspace_exists(run_id):
+        raise HTTPException(status_code=404, detail=f"Workspace for run {run_id} not found")
+
+    cleanup_workspace(run_id)
+    return {"status": "deleted", "run_id": run_id}

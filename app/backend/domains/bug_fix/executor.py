@@ -17,6 +17,7 @@ from collections import deque
 from typing import Any
 
 from app.backend.core.executors import ExecutorContext, ProgressEvent, WorkflowExecutor
+from app.backend.core.workspace import clone_repo, ensure_workspace
 from app.backend.domains.bug_fix.analyze_agent import AnalyzeConfigError, analyze_jira_issue
 from app.backend.domains.bug_fix.jira_client import (
     JiraMcpConfigError,
@@ -148,9 +149,13 @@ class BugFixExecutor(WorkflowExecutor):
         graph_edges = request.get("graph_edges") or []
         runnable_nodes = [n for n in graph_nodes if n.get("type") in _RUNNABLE_TYPES]
 
+        # Get run_id from context for workspace isolation
+        run_id = context.run_id if hasattr(context, "run_id") else None
+
         state: dict[str, Any] = {
             "issue_key": issue_key,
             "api_keys": context.api_keys,
+            "run_id": run_id,
         }
 
         try:
@@ -350,23 +355,47 @@ class BugFixExecutor(WorkflowExecutor):
         state: dict[str, Any],
         done_payload: dict[str, Any],
     ) -> None:
-        # Per-node repoPath takes precedence; fall back to anything an
-        # upstream node already wrote to shared state.
-        repo_path = str(node_data.get("repoPath") or "").strip() or state.get("repo_path")
+        # Get repo URL from node config
+        repo_url = str(node_data.get("repoUrl") or "").strip()
+        target_branch = str(node_data.get("targetBranch") or "").strip() or "main"
         jira_detail = state.get("jira_detail")
-        if not repo_path:
-            state["patch_error"] = "Patch needs a repo path (fill the field on the Patch node)"
+        
+        if not repo_url:
+            state["patch_error"] = "Patch needs a repo URL (fill the repoUrl field on the Patch node)"
             done_payload["error"] = state["patch_error"]
             return
         if not jira_detail:
             state["patch_error"] = "Patch requires a Jira Issue Input upstream"
             done_payload["error"] = state["patch_error"]
             return
-        # Cache for downstream stages (Open PR needs the same path).
+        
+        # Clone repo into workspace if run_id is available
+        run_id = state.get("run_id")
+        if run_id:
+            try:
+                repo_path_obj = await clone_repo(
+                    run_id=run_id,
+                    repo_url=repo_url,
+                    branch=target_branch,
+                    repo_name="repo",
+                )
+                repo_path = str(repo_path_obj)
+            except Exception as e:
+                state["patch_error"] = f"Failed to clone repo: {e}"
+                done_payload["error"] = state["patch_error"]
+                return
+        else:
+            # Fallback to legacy repo_path if no run_id
+            repo_path = str(node_data.get("repoPath") or "").strip() or state.get("repo_path")
+            if not repo_path:
+                state["patch_error"] = "Patch needs either repoUrl (for workspace) or repoPath (legacy)"
+                done_payload["error"] = state["patch_error"]
+                return
+        
+        # Cache for downstream stages (Open PR needs the same path)
         state["repo_path"] = repo_path
-        # Cache target_branch for Open PR
-        target_branch = str(node_data.get("targetBranch") or "").strip() or "main"
         state["pr_target_branch"] = target_branch
+        
         try:
             result = await run_patch(
                 repo_path, jira_detail, state.get("analysis"),

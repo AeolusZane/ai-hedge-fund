@@ -43,6 +43,7 @@ class ExecutorContext:
     api_keys: dict[str, str]
     emit: ProgressCallback
     is_cancelled: Callable[[], bool]
+    run_id: Optional[int] = None
 
 
 class WorkflowExecutor(ABC):
