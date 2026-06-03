@@ -20,6 +20,7 @@ from typing import Any
 from app.backend.core.executors import ExecutorContext, ProgressEvent, WorkflowExecutor
 from app.backend.core.workspace import clone_repo, ensure_workspace
 from app.backend.domains.bug_fix.analyze_agent import AnalyzeConfigError, analyze_jira_issue
+from app.backend.domains.bug_fix.anomaly_detection import AnomalyDetector
 from app.backend.domains.bug_fix.jira_client import (
     JiraMcpConfigError,
     JiraMcpToolError,
@@ -223,6 +224,9 @@ class BugFixExecutor(WorkflowExecutor):
                 "run_id": run_id,
             }
 
+        # Initialize anomaly detector
+        self._anomaly_detector = AnomalyDetector()
+
         try:
             if runnable_nodes:
                 stages_executed = await self._run_graph(
@@ -278,6 +282,11 @@ class BugFixExecutor(WorkflowExecutor):
             else:
                 stage_name = node_data.get("name", "")
             stages_executed.append({"node_id": node_id, "name": stage_name})
+            
+            # Mark stage start for timeout detection
+            if hasattr(self, '_anomaly_detector'):
+                self._anomaly_detector.mark_stage_start(node_id)
+            
             await self._run_node(
                 node_id=node_id,
                 node_type=node_type,
@@ -287,6 +296,10 @@ class BugFixExecutor(WorkflowExecutor):
                 state=state,
                 context=context,
             )
+            
+            # Check for stage timeout after completion
+            if hasattr(self, '_anomaly_detector'):
+                self._anomaly_detector.check_stage_timeout(node_id, stage_name)
             
             # Save state snapshot after node completes
             # Deep copy to avoid reference issues
@@ -856,5 +869,34 @@ class BugFixExecutor(WorkflowExecutor):
 
         if token_usage_list:
             result["token_usage"] = aggregate_token_usage(token_usage_list)
+            
+            # Check token usage anomalies
+            if hasattr(self, '_anomaly_detector'):
+                self._anomaly_detector.check_token_usage(result["token_usage"])
+
+        # Check confidence anomalies from analysis
+        analysis = state.get("analysis")
+        if isinstance(analysis, dict) and hasattr(self, '_anomaly_detector'):
+            # Check overall confidence
+            confidence = analysis.get("confidence")
+            if confidence is not None:
+                self._anomaly_detector.check_confidence("analyze", "Analyze", confidence)
+            
+            # Check individual decision steps
+            for step in analysis.get("decision_steps", []):
+                step_confidence = step.get("confidence")
+                if step_confidence is not None:
+                    self._anomaly_detector.check_confidence(
+                        "analyze", 
+                        f"Analyze: {step.get('step', 'unknown')}",
+                        step_confidence
+                    )
+
+        # Check error patterns
+        if hasattr(self, '_anomaly_detector'):
+            self._anomaly_detector.check_error_pattern(result)
+            anomaly_summary = self._anomaly_detector.get_summary()
+            if anomaly_summary["anomaly_count"] > 0:
+                result["anomalies"] = anomaly_summary
 
         return result
