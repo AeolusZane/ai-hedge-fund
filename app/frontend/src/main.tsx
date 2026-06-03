@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
 
 import App from './App';
 import { NodeProvider } from './contexts/node-context';
@@ -17,7 +18,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider>
       <NodeProvider>
-        <App />
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
       </NodeProvider>
     </ThemeProvider>
   </React.StrictMode>

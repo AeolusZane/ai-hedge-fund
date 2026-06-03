@@ -12,6 +12,7 @@ from app.backend.routes.agents import router as agents_router
 from app.backend.routes.callback import router as callback_router
 from app.backend.routes.agent_builder import router as agent_builder_router
 from app.backend.routes.experiences import router as experiences_router
+from app.backend.routes.bug_fix_dashboard import router as bug_fix_dashboard_router
 
 # Main API router
 api_router = APIRouter()
@@ -29,3 +30,4 @@ api_router.include_router(agents_router, tags=["agents"])
 api_router.include_router(callback_router, tags=["callback"])
 api_router.include_router(agent_builder_router, tags=["agent-builder"])
 api_router.include_router(experiences_router, tags=["experiences"])
+api_router.include_router(bug_fix_dashboard_router, tags=["bug-fix"])

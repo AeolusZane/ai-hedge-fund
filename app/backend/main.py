@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 import logging
 import asyncio
+from pathlib import Path
 
 # Load .env at import time so every code path (executors, services) sees
 # the same view of credentials regardless of how uvicorn was launched.
@@ -64,6 +67,17 @@ app.add_middleware(
 
 # Include all routes
 app.include_router(api_router)
+
+# Serve frontend static files (SPA fallback)
+frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
+if frontend_dist.exists():
+    app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="static-assets")
+    
+    @app.get("/bug-fix")
+    @app.get("/")
+    async def serve_spa():
+        """Serve index.html for SPA routes"""
+        return FileResponse(frontend_dist / "index.html")
 
 @app.on_event("startup")
 async def startup_event():
