@@ -1,87 +1,39 @@
-"""Node-level Agent for interactive debugging.
+"""Node-level Agent for interactive debugging — powered by Claude CLI.
 
-When a pipeline node fails, this Agent can:
+When a pipeline node fails or is running, this Agent can:
 - Analyze the error and explain what went wrong
-- Suggest configuration fixes
-- Update node configuration via tool calls
+- Report current progress based on live output and timeline
+- Read/write files in the workspace directory
+- Suggest and apply configuration fixes
 - Trigger node retry
 
-The Agent uses LangChain's tool-calling pattern with streaming support.
+Uses Claude CLI (claude-code) with streaming support for real-time responses.
 """
 from __future__ import annotations
 
+import asyncio
 import json
-import subprocess
+import os
+from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from src.llm.models import ModelProvider, get_model
+
+# ── Claude CLI path ───────────────────────────────────────────────────────────
+
+def _get_claude_bin() -> str:
+    """Resolve the claude.exe binary path."""
+    # Try project-local first
+    project_root = Path(__file__).resolve().parents[4]  # app/backend/domains/bug_fix/ -> project root
+    local_bin = project_root / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+    if local_bin.exists():
+        return str(local_bin)
+    # Fallback to global
+    return "claude"
 
 
-# ── Tool Definitions ──────────────────────────────────────────────────────────
-
-@tool
-def update_config(key: str, value: str) -> str:
-    """Update a node configuration field.
-
-    Args:
-        key: The configuration field name (e.g., 'pushRemote', 'prTargetRemote', 'targetBranch')
-        value: The new value for the field
-
-    Returns:
-        Confirmation message with the updated configuration
-    """
-    return json.dumps({"action": "update_config", "key": key, "value": value})
-
-
-@tool
-def retry_node() -> str:
-    """Mark the node for retry. The frontend will trigger a re-execution.
-
-    Returns:
-        Confirmation that retry has been requested
-    """
-    return json.dumps({"action": "retry_node"})
-
-
-@tool
-def get_git_remotes(repo_path: str) -> str:
-    """Get the list of git remotes for a repository.
-
-    Args:
-        repo_path: Absolute path to the git repository
-
-    Returns:
-        JSON with remote names and their URLs
-    """
-    try:
-        result = subprocess.run(
-            ["git", "remote", "-v"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode != 0:
-            return json.dumps({"error": f"git remote failed: {result.stderr}"})
-
-        remotes = {}
-        for line in result.stdout.strip().splitlines():
-            parts = line.split()
-            if len(parts) >= 2:
-                name = parts[0]
-                url = parts[1]
-                if name not in remotes:
-                    remotes[name] = {"url": url, "type": "fetch" if "(fetch)" in line else "push"}
-        return json.dumps({"remotes": remotes})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
-
-
-# ── Agent Logic ───────────────────────────────────────────────────────────────
+# ── Request Model ─────────────────────────────────────────────────────────────
 
 class NodeChatRequest(BaseModel):
     """Request payload for node chat."""
@@ -96,27 +48,34 @@ class NodeChatRequest(BaseModel):
     progress_timeline: Optional[str] = None
     node_status: Optional[str] = None
     repo_path: Optional[str] = None
+    workspace_path: Optional[str] = None
     model_name: Optional[str] = None
     model_provider: Optional[str] = None
     api_keys: Optional[dict[str, str]] = None
 
 
+# ── System Prompt ─────────────────────────────────────────────────────────────
+
 def _build_system_prompt(request: NodeChatRequest) -> str:
     """Build the system prompt with node context."""
     config_str = json.dumps(request.node_config, indent=2, ensure_ascii=False)
     error_section = f"\n\nError:\n{request.error_info}" if request.error_info else ""
-    repo_section = f"\n\nRepository path: {request.repo_path}" if request.repo_path else ""
     
-    # Add streaming output context for in-progress nodes
+    # Workspace / repo info
+    work_dir = request.workspace_path or request.repo_path
+    work_section = ""
+    if work_dir:
+        work_section = f"\n\nWorking directory: {work_dir}\nYou can read and write files in this directory."
+    
+    # Streaming output context for in-progress nodes
     streaming_section = ""
     if request.streaming_output and request.node_status == "IN_PROGRESS":
-        # Truncate to last 2000 chars to avoid overwhelming the context
         output = request.streaming_output
         if len(output) > 2000:
             output = "..." + output[-2000:]
         streaming_section = f"\n\nCurrent progress (live output):\n{output}"
     
-    # Add progress timeline for context
+    # Progress timeline
     timeline_section = ""
     if request.progress_timeline:
         timeline_section = f"\n\nProgress timeline:\n{request.progress_timeline}"
@@ -129,84 +88,163 @@ Current node: {request.node_name} (type: {request.node_type})
 Node ID: {request.node_id}{status_section}
 
 Current configuration:
-{config_str}{error_section}{repo_section}{streaming_section}{timeline_section}
+{config_str}{error_section}{work_section}{streaming_section}{timeline_section}
 
 Your capabilities:
 1. Report current progress and explain what's happening (when node is running)
 2. Analyze errors and explain what went wrong (when node has failed)
-3. Suggest configuration fixes
-4. Update configuration using the update_config tool
-5. Trigger a retry using the retry_node tool
-6. Query git remotes using get_git_remotes tool
+3. Read and write files in the working directory to inspect code or apply fixes
+4. Suggest configuration fixes and explain the reasoning
+5. Help debug issues by examining source code, logs, and configuration files
 
 Guidelines:
 - Be concise and actionable
 - When the node is running, summarize the current progress based on the live output and timeline
 - When suggesting fixes, explain the reasoning
-- Use tools to make actual changes, don't just describe them
-- After updating config, suggest retry if appropriate
+- You can read files to understand the codebase and diagnose issues
+- You can write/patch files when the user asks you to make changes
 - Respond in the same language as the user (Chinese if they speak Chinese)
 """
 
 
+def _build_user_prompt(request: NodeChatRequest) -> str:
+    """Build the full user prompt including conversation history."""
+    parts = []
+    
+    # Include conversation history as context
+    if request.conversation_history:
+        parts.append("Previous conversation:")
+        for msg in request.conversation_history:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            prefix = "User" if role == "user" else "Assistant"
+            parts.append(f"[{prefix}]: {content}")
+        parts.append("")
+    
+    parts.append(f"Current question: {request.message}")
+    return "\n".join(parts)
+
+
+# ── Claude CLI Streaming ──────────────────────────────────────────────────────
+
 async def chat_with_node(
     request: NodeChatRequest,
 ) -> AsyncIterator[dict[str, Any]]:
-    """Stream Agent responses with tool calls.
+    """Stream Agent responses using Claude CLI.
 
     Yields events:
     - {"type": "token", "content": "..."} for text chunks
     - {"type": "tool_call", "name": "...", "args": {...}} for tool invocations
     - {"type": "done"} when complete
     """
-    # Resolve model
-    model_name = request.model_name or "claude-3-5-sonnet-20241022"
-    provider_name = request.model_provider or "Anthropic"
-    try:
-        provider = ModelProvider(provider_name)
-    except ValueError:
-        provider = ModelProvider.ANTHROPIC
-
-    llm = get_model(model_name, provider, api_keys=request.api_keys or {})
-    if llm is None:
-        yield {"type": "error", "message": f"Failed to load model {model_name}"}
-        return
-
-    # Bind tools
-    tools = [update_config, retry_node, get_git_remotes]
-    llm_with_tools = llm.bind_tools(tools)
-
-    # Build message history
-    messages = [SystemMessage(content=_build_system_prompt(request))]
-    for msg in request.conversation_history:
-        role = msg.get("role", "user")
-        content = msg.get("content", "")
-        if role == "user":
-            messages.append(HumanMessage(content=content))
-        elif role == "assistant":
-            messages.append(AIMessage(content=content))
-    messages.append(HumanMessage(content=request.message))
-
-    # Stream response
-    tool_calls_buffer = []
-    async for chunk in llm_with_tools.astream(messages):
-        # Stream text content
-        if hasattr(chunk, "content") and chunk.content:
-            content = chunk.content if isinstance(chunk.content, str) else str(chunk.content)
-            if content.strip():
-                yield {"type": "token", "content": content}
-
-        # Collect tool calls
-        if hasattr(chunk, "tool_calls") and chunk.tool_calls:
-            for tc in chunk.tool_calls:
-                tool_calls_buffer.append(tc)
-
-    # Emit tool calls
-    for tc in tool_calls_buffer:
-        yield {
-            "type": "tool_call",
-            "name": tc.get("name", ""),
-            "args": tc.get("args", {}),
+    claude_bin = _get_claude_bin()
+    system_prompt = _build_system_prompt(request)
+    user_prompt = _build_user_prompt(request)
+    
+    # Determine working directory
+    cwd = request.workspace_path or request.repo_path or os.getcwd()
+    
+    # Build CLI command
+    cmd = [
+        claude_bin,
+        "-p",                          # print mode (non-interactive)
+        "--output-format", "stream-json",  # streaming JSON output
+        "--verbose",                   # include tool use details
+        "--system-prompt", system_prompt,
+        user_prompt,
+    ]
+    
+    # Set up environment with API keys
+    env = os.environ.copy()
+    if request.api_keys:
+        # Map common API key names to environment variables
+        key_mapping = {
+            "anthropic": "ANTHROPIC_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "google": "GOOGLE_API_KEY",
         }
-
+        for provider, key in request.api_keys.items():
+            env_var = key_mapping.get(provider.lower())
+            if env_var and key:
+                env[env_var] = key
+    
+    # Model selection
+    if request.model_name:
+        cmd.extend(["--model", request.model_name])
+    
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+            env=env,
+        )
+    except FileNotFoundError:
+        yield {"type": "error", "message": f"Claude CLI not found at {claude_bin}. Install with: npm install @anthropic-ai/claude-code"}
+        return
+    except Exception as e:
+        yield {"type": "error", "message": f"Failed to start Claude CLI: {e}"}
+        return
+    
+    # Parse streaming output
+    assert process.stdout is not None
+    buffer = ""
+    
+    async for line_bytes in process.stdout:
+        line = line_bytes.decode("utf-8", errors="replace").strip()
+        if not line:
+            continue
+        
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            # Not JSON, skip
+            continue
+        
+        event_type = event.get("type", "")
+        
+        if event_type == "system":
+            # Init event, skip
+            continue
+        
+        elif event_type == "assistant":
+            # Assistant message with content blocks
+            message = event.get("message", {})
+            content_blocks = message.get("content", [])
+            for block in content_blocks:
+                block_type = block.get("type", "")
+                if block_type == "text":
+                    text = block.get("text", "")
+                    if text:
+                        yield {"type": "token", "content": text}
+                elif block_type == "tool_use":
+                    yield {
+                        "type": "tool_call",
+                        "name": block.get("name", ""),
+                        "args": block.get("input", {}),
+                    }
+        
+        elif event_type == "result":
+            # Final result
+            subtype = event.get("subtype", "")
+            if subtype == "error":
+                error_msg = event.get("error", "Unknown error")
+                yield {"type": "error", "message": error_msg}
+            # Success — done event will be yielded at the end
+        
+        elif event_type == "tool":
+            # Tool result (for verbose mode)
+            # We can optionally surface this to the user
+            pass
+    
+    # Wait for process to finish
+    await process.wait()
+    
+    if process.returncode != 0 and process.stderr:
+        stderr = await process.stderr.read()
+        stderr_text = stderr.decode("utf-8", errors="replace").strip()
+        if stderr_text:
+            yield {"type": "error", "message": f"Claude CLI error: {stderr_text}"}
+    
     yield {"type": "done"}

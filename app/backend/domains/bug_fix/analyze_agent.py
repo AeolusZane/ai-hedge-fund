@@ -168,7 +168,19 @@ async def analyze_jira_issue(
     parts: list[str] = []
     async for chunk in llm.astream(prompt):
         piece = getattr(chunk, "content", chunk)
-        token = piece if isinstance(piece, str) else str(piece)
+        if isinstance(piece, str):
+            token = piece
+        elif isinstance(piece, list):
+            # Anthropic returns content blocks: [{'text': '...', 'type': 'text'}, ...]
+            token_parts = []
+            for block in piece:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    token_parts.append(block.get("text", ""))
+                elif isinstance(block, str):
+                    token_parts.append(block)
+            token = "".join(token_parts)
+        else:
+            token = str(piece)
         if not token:
             continue
         parts.append(token)

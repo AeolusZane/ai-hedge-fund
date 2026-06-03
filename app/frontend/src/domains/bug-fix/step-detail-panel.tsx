@@ -401,6 +401,7 @@ export function StepDetailPanel() {
           progressTimeline={progressItems.map(p => `${fmtTime(p.ts)} ${p.status}`).join('\n')}
           nodeStatus={status}
           repoPath={nodeConfig.repoPath as string | undefined}
+          workspacePath={runId ? `/workspace/${runId}` : undefined}
           onConfigUpdate={handleConfigUpdate}
           onRetry={handleRetry}
         />

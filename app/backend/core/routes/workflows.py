@@ -199,6 +199,7 @@ class NodeChatRequest(BaseModel):
     progress_timeline: Optional[str] = None
     node_status: Optional[str] = None
     repo_path: Optional[str] = None
+    workspace_path: Optional[str] = None
     model_name: Optional[str] = None
     model_provider: Optional[str] = None
 
@@ -234,6 +235,7 @@ async def node_chat(
         progress_timeline=request_data.progress_timeline,
         node_status=request_data.node_status,
         repo_path=request_data.repo_path,
+        workspace_path=request_data.workspace_path,
         model_name=request_data.model_name,
         model_provider=request_data.model_provider,
         api_keys=api_keys,
