@@ -70,3 +70,6 @@ app/backend/alembic/versions/__pycache__/.env.test
 
 # Test environment variables
 .env.test
+
+# Local dev runtime — pids, logs from scripts/dev.sh
+.dev/
