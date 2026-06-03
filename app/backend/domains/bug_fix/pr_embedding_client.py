@@ -1,7 +1,8 @@
 """PR Embedding client — semantic search against historical PR review records.
 
-Calls the pr-embedding service (FastAPI + TF-IDF on port 8100) to find
-similar past PR reviews that match the current bug's description.
+Calls the pr-embedding service (default port 8100) to find similar past
+PR reviews that match the current bug's description. The service handles
+vectorization and retrieval internally; this client is algorithm-agnostic.
 
 Falls back gracefully if the service is unavailable.
 """
@@ -31,8 +32,8 @@ async def search_similar_prs(
 ) -> list[dict[str, Any]]:
     """Search the pr-embedding service for semantically similar PR reviews.
 
-    The pr-embedding service uses TF-IDF vector search over historical
-    Bitbucket PR review records, with jieba tokenization for Chinese text.
+    Sends the query to the pr-embedding service which performs vector
+    similarity search over historical Bitbucket PR review records.
 
     Args:
         query: Natural language description of the bug

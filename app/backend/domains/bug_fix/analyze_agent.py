@@ -454,7 +454,7 @@ async def analyze_jira_issue(
     # ── Phase 0: Knowledge Recall ───────────────────────────────────
     # Query two knowledge sources in parallel:
     #   1. experience_store — team's own bug fix history (FTS5)
-    #   2. pr_embedding — historical PR review records (TF-IDF semantic)
+    #   2. pr_embedding — historical PR review records (vector similarity)
     experience_context = ""
     similar_cases: list[dict[str, Any]] = []
     pr_references: list[dict[str, Any]] = []
