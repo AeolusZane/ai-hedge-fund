@@ -175,9 +175,9 @@ async def chat_with_node(
     try:
         process = await asyncio.create_subprocess_exec(
             *cmd,
-            stdin=asyncio.subprocess.DEVNULL,  # Don't wait for stdin
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,  # Discard stderr to avoid pipe deadlock
             cwd=cwd,
             env=env,
         )
@@ -190,62 +190,58 @@ async def chat_with_node(
     
     # Parse streaming output
     assert process.stdout is not None
-    buffer = ""
     
-    async for line_bytes in process.stdout:
-        line = line_bytes.decode("utf-8", errors="replace").strip()
-        if not line:
-            continue
-        
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            # Not JSON, skip
-            continue
-        
-        event_type = event.get("type", "")
-        
-        if event_type == "system":
-            # Init event, skip
-            continue
-        
-        elif event_type == "assistant":
-            # Assistant message with content blocks
-            message = event.get("message", {})
-            content_blocks = message.get("content", [])
-            for block in content_blocks:
-                block_type = block.get("type", "")
-                if block_type == "text":
-                    text = block.get("text", "")
-                    if text:
-                        yield {"type": "token", "content": text}
-                elif block_type == "tool_use":
-                    yield {
-                        "type": "tool_call",
-                        "name": block.get("name", ""),
-                        "args": block.get("input", {}),
-                    }
-        
-        elif event_type == "result":
-            # Final result
-            subtype = event.get("subtype", "")
-            if subtype == "error":
-                error_msg = event.get("error", "Unknown error")
-                yield {"type": "error", "message": error_msg}
-            # Success — done event will be yielded at the end
-        
-        elif event_type == "tool":
-            # Tool result (for verbose mode)
-            # We can optionally surface this to the user
-            pass
+    try:
+        async for line_bytes in process.stdout:
+            line = line_bytes.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            
+            event_type = event.get("type", "")
+            
+            if event_type == "system":
+                continue
+            
+            elif event_type == "assistant":
+                message = event.get("message", {})
+                content_blocks = message.get("content", [])
+                for block in content_blocks:
+                    block_type = block.get("type", "")
+                    if block_type == "text":
+                        text = block.get("text", "")
+                        if text:
+                            yield {"type": "token", "content": text}
+                    elif block_type == "tool_use":
+                        yield {
+                            "type": "tool_call",
+                            "name": block.get("name", ""),
+                            "args": block.get("input", {}),
+                        }
+            
+            elif event_type == "result":
+                subtype = event.get("subtype", "")
+                if subtype == "error":
+                    error_msg = event.get("error", "Unknown error")
+                    yield {"type": "error", "message": error_msg}
+            
+            elif event_type == "tool":
+                pass
+    except asyncio.CancelledError:
+        process.kill()
+        raise
+    except Exception as e:
+        yield {"type": "error", "message": f"Stream error: {e}"}
     
-    # Wait for process to finish
-    await process.wait()
-    
-    if process.returncode != 0 and process.stderr:
-        stderr = await process.stderr.read()
-        stderr_text = stderr.decode("utf-8", errors="replace").strip()
-        if stderr_text:
-            yield {"type": "error", "message": f"Claude CLI error: {stderr_text}"}
+    # Ensure process exits
+    try:
+        await asyncio.wait_for(process.wait(), timeout=5.0)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()
     
     yield {"type": "done"}
