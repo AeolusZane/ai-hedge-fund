@@ -394,24 +394,22 @@ export function StepDetailPanel() {
         )}
       </div>
 
-      {/* Agent Chat — available whenever the node has started (not IDLE) */}
-      {status !== 'IDLE' && (
-        <NodeChat
-          nodeId={agentId}
-          nodeName={stageName}
-          nodeType={stageName}
-          nodeConfig={nodeConfig}
-          errorInfo={resultSlice?.error}
-          streamingOutput={stream}
-          progressTimeline={progressItems.map(p => `${fmtTime(p.ts)} ${p.status}`).join('\n')}
-          nodeStatus={status}
-          repoUrl={nodeConfig.repoUrl as string | undefined}
-          workspacePath={runId ? `/workspace/${runId}` : undefined}
-          runId={runId}
-          onConfigUpdate={handleConfigUpdate}
-          onRetry={handleRetry}
-        />
-      )}
+      {/* Agent Chat — always available for any node */}
+      <NodeChat
+        nodeId={agentId}
+        nodeName={stageName}
+        nodeType={stageName}
+        nodeConfig={nodeConfig}
+        errorInfo={resultSlice?.error}
+        streamingOutput={stream}
+        progressTimeline={progressItems.map(p => `${fmtTime(p.ts)} ${p.status}`).join('\n')}
+        nodeStatus={status}
+        repoUrl={nodeConfig.repoUrl as string | undefined}
+        workspacePath={runId ? `/workspace/${runId}` : undefined}
+        runId={runId}
+        onConfigUpdate={handleConfigUpdate}
+        onRetry={handleRetry}
+      />
 
       {/* Footer — re-run button (placeholder for future interrupt mechanism) */}
       <div className="px-4 py-2 border-t">
