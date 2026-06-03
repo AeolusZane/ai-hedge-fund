@@ -27,6 +27,7 @@ from app.backend.domains.bug_fix.jira_client import (
 )
 from app.backend.domains.bug_fix.patch_agent import PatchConfigError, run_patch
 from app.backend.domains.bug_fix.pr_agent import PrConfigError, open_pr
+from app.backend.domains.bug_fix.token_tracking import aggregate_token_usage
 
 
 # Default stages run in order when the caller doesn't draw a graph.
@@ -837,4 +838,23 @@ class BugFixExecutor(WorkflowExecutor):
         for key in ("analyze_error", "patch_error", "open_pr_error"):
             if state.get(key):
                 result[key] = state[key]
+
+        # Aggregate token usage from all stages
+        token_usage_list: list[dict[str, Any]] = []
+        # Analyze stage token usage
+        analysis = state.get("analysis")
+        if isinstance(analysis, dict) and analysis.get("token_usage"):
+            token_usage_list.append(analysis["token_usage"])
+        # Patch stage token usage (from Claude CLI)
+        patch = state.get("patch")
+        if isinstance(patch, dict) and patch.get("token_usage"):
+            token_usage_list.append(patch["token_usage"])
+        # Open PR stage token usage
+        open_pr_data = state.get("open_pr")
+        if isinstance(open_pr_data, dict) and open_pr_data.get("token_usage"):
+            token_usage_list.append(open_pr_data["token_usage"])
+
+        if token_usage_list:
+            result["token_usage"] = aggregate_token_usage(token_usage_list)
+
         return result
