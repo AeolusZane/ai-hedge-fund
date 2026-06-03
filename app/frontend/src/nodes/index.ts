@@ -1,5 +1,6 @@
 import { Edge, type NodeTypes } from '@xyflow/react';
 
+import { AgentBuilderNode } from './components/agent-builder-node';
 import { BugFixStageNode } from './components/bug-fix-stage-node';
 import { ExternalAgentNode } from './components/external-agent-node';
 import { GateNode } from './components/gate-node';
@@ -14,6 +15,7 @@ export const initialNodes: AppNode[] = [];
 export const initialEdges: Edge[] = [];
 
 export const nodeTypes = {
+  'agent-builder-node': AgentBuilderNode,
   'bug-fix-stage-node': BugFixStageNode,
   'external-agent-node': ExternalAgentNode,
   'gate-node': GateNode,

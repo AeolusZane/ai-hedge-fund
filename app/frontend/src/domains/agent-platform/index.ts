@@ -1,7 +1,8 @@
-import { Bot, Plus, Settings } from 'lucide-react';
+import { Bot, Plus, Settings, Sparkles } from 'lucide-react';
 import { registerDomain } from '@/core/domain-registry';
 import type { DomainPack } from '@/core/types/domain-pack';
 import type { WorkflowTemplate } from '@/core/types/workflow-template';
+import { AgentBuilderNode } from '@/nodes/components/agent-builder-node';
 import { ExternalAgentNode } from '@/nodes/components/external-agent-node';
 
 /**
@@ -41,6 +42,18 @@ const agentPlatformDomain: DomainPack = {
         color: '#6366f1',
       },
     },
+    {
+      id: 'agent-builder-node',
+      component: AgentBuilderNode,
+      defaultData: {
+        agentId: `agent_${Date.now()}`,
+        agentName: 'New Agent',
+        description: '',
+        skills: [],
+        status: 'draft',
+        color: '#8b5cf6',
+      },
+    },
   ],
   getComponentGroups: async () => [
     {
@@ -49,6 +62,14 @@ const agentPlatformDomain: DomainPack = {
       iconColor: 'text-indigo-500',
       items: [
         { name: 'External Agent', icon: Bot },
+      ],
+    },
+    {
+      name: 'Builder',
+      icon: Sparkles,
+      iconColor: 'text-purple-500',
+      items: [
+        { name: 'Create Agent', icon: Sparkles },
       ],
     },
     {

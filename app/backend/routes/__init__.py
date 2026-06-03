@@ -10,6 +10,7 @@ from app.backend.routes.language_models import router as language_models_router
 from app.backend.routes.api_keys import router as api_keys_router
 from app.backend.routes.agents import router as agents_router
 from app.backend.routes.callback import router as callback_router
+from app.backend.routes.agent_builder import router as agent_builder_router
 
 # Main API router
 api_router = APIRouter()
@@ -25,3 +26,4 @@ api_router.include_router(language_models_router, tags=["language-models"])
 api_router.include_router(api_keys_router, tags=["api-keys"])
 api_router.include_router(agents_router, tags=["agents"])
 api_router.include_router(callback_router, tags=["callback"])
+api_router.include_router(agent_builder_router, tags=["agent-builder"])
