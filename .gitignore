@@ -44,8 +44,8 @@ Thumbs.db
 # graph
 *.png
 
-# Txt files
-*.txt
+# Temporary text files (keep requirements.txt, README.md etc.)
+# *.txt
 
 # PDF files
 *.pdf

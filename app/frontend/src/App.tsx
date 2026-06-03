@@ -1,5 +1,5 @@
 import { Routes, Route } from 'react-router-dom';
-import { Layout } from './components/layout';
+import { Layout } from './components/Layout';
 import { BugFixDashboard } from './domains/bug-fix/bug-fix-dashboard';
 import { Toaster } from './components/ui/sonner';
 
