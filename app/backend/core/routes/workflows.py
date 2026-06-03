@@ -2,7 +2,7 @@
 
 POST /workflows/{domain}/run resolves a WorkflowExecutor from the registry,
 streams its ProgressEvents as SSE, and persists a FlowRun row when the
-caller supplies `flow_id`. Domain-specific routes (e.g. /hedge-fund/run)
+caller supplies `flow_id`. Domain-specific routes
 remain available for backwards compatibility.
 """
 from __future__ import annotations

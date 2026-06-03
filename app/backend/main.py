@@ -14,11 +14,6 @@ load_dotenv()
 from app.backend.routes import api_router
 from app.backend.database.connection import engine
 from app.backend.database.models import Base
-from app.backend.database.agent_models import (  # noqa: F401
-    RegisteredAgent, AgentRun, AgentOutput, AgentConnection,
-)
-from app.backend.services.ollama_service import ollama_service
-from app.backend.services.agent_scheduler import agent_scheduler
 
 # Importing each domain's `pack` module triggers its executor registration.
 import app.backend.domains.bug_fix.pack  # noqa: F401
@@ -27,7 +22,7 @@ import app.backend.domains.bug_fix.pack  # noqa: F401
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AI Hedge Fund API", description="Backend API for AI Hedge Fund", version="0.1.0")
+app = FastAPI(title="AI Agent Platform API", description="Backend API for AI Agent Platform", version="0.2.0")
 
 # Initialize database tables (this is safe to run multiple times)
 Base.metadata.create_all(bind=engine)
@@ -85,38 +80,11 @@ if frontend_dist.exists():
 
 @app.on_event("startup")
 async def startup_event():
-    """Startup event to check Ollama availability and start agent scheduler."""
-    try:
-        logger.info("Checking Ollama availability...")
-        status = await ollama_service.check_ollama_status()
-        
-        if status["installed"]:
-            if status["running"]:
-                logger.info(f"✓ Ollama is installed and running at {status['server_url']}")
-                if status["available_models"]:
-                    logger.info(f"✓ Available models: {', '.join(status['available_models'])}")
-                else:
-                    logger.info("ℹ No models are currently downloaded")
-            else:
-                logger.info("ℹ Ollama is installed but not running")
-                logger.info("ℹ You can start it from the Settings page or manually with 'ollama serve'")
-        else:
-            logger.info("ℹ Ollama is not installed. Install it to use local models.")
-            logger.info("ℹ Visit https://ollama.com to download and install Ollama")
-            
-    except Exception as e:
-        logger.warning(f"Could not check Ollama status: {e}")
-        logger.info("ℹ Ollama integration is available if you install it later")
-
-    # Start the agent scheduler
-    try:
-        await agent_scheduler.start()
-        logger.info("✓ Agent scheduler started")
-    except Exception as e:
-        logger.warning(f"Could not start agent scheduler: {e}")
+    """Startup event."""
+    logger.info("AI Agent Platform API started")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Shutdown event to stop the agent scheduler."""
-    await agent_scheduler.stop()
+    """Shutdown event."""
+    logger.info("AI Agent Platform API stopped")

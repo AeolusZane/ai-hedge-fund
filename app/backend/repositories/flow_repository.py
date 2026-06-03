@@ -12,7 +12,7 @@ class FlowRepository:
     def create_flow(self, name: str, nodes: dict, edges: dict, description: str = None,
                    viewport: dict = None, data: dict = None, is_template: bool = False,
                    tags: List[str] = None, domain: str = "bug_fix") -> HedgeFundFlow:
-        """Create a new hedge fund flow"""
+        """Create a new flow"""
         flow = HedgeFundFlow(
             name=name,
             description=description,

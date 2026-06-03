@@ -1,63 +1,12 @@
 # AI Agent Platform
 
-A self-evolving AI agent platform that learns from experience. Currently includes two domains: an AI-powered hedge fund for stock analysis, and a self-improving bug fix agent that gets better at fixing bugs over time.
+A self-evolving AI agent platform that learns from experience. The platform provides infrastructure for building, running, and monitoring autonomous agents that improve over time.
 
-## Architecture
-
-```
-ai-hedge-fund/
-├── src/                          # Hedge Fund Agents (CLI)
-│   ├── agents/                   # 19 investment agents (Buffett, Munger, etc.)
-│   ├── graph/                    # LangGraph workflow
-│   └── llm/                      # LLM integration
-├── app/
-│   ├── backend/                  # FastAPI backend
-│   │   ├── domains/
-│   │   │   └── bug_fix/          # Self-evolving bug fix agent
-│   │   │       ├── analyze_agent.py
-│   │   │       ├── patch_agent.py
-│   │   │       ├── test_agent.py
-│   │   │       ├── pr_agent.py
-│   │   │       ├── post_fix_agent.py
-│   │   │       ├── experience_store.py
-│   │   │       ├── code_understanding_store.py
-│   │   │       ├── pr_embedding/
-│   │   │       └── pr_sync.py
-│   │   ├── routes/               # API routes
-│   │   ├── database/             # SQLite + models
-│   │   └── main.py
-│   └── frontend/                 # React + Vite frontend
-│       └── src/
-│           ├── domains/bug-fix/  # Bug Fix Dashboard
-│           ├── components/       # Flow editor, panels, tabs
-│           └── App.tsx
-└── docs/
-    └── evaluation-plan.md        # Self-evolution evaluation methodology
-```
-
-## Domains
-
-### 1. AI Hedge Fund
-
-19 specialized investment agents working together to analyze stocks and make trading decisions. Based on [virattt/ai-hedge-fund](https://github.com/virattt/ai-hedge-fund).
-
-**Agents:** Warren Buffett, Charlie Munger, Ben Graham, Cathie Wood, Michael Burry, Peter Lynch, Phil Fisher, Bill Ackman, Stanley Druckenmiller, Mohnish Pabrai, Nassim Taleb, Rakesh Jhunjhunwala, Aswath Damodaran, + Valuation / Sentiment / Fundamentals / Technicals / Risk Manager / Portfolio Manager.
-
-```bash
-# CLI
-poetry run python src/main.py --ticker AAPL,MSFT,NVDA
-
-# Backtester
-poetry run python src/backtester.py --ticker AAPL
-```
-
-> **Disclaimer:** For educational purposes only. Not real trading, not investment advice.
-
-### 2. Bug Fix Agent (Self-Evolving)
+## Current Domain: Bug Fix Agent
 
 An autonomous agent that fetches bugs from Jira, analyzes code, generates patches, runs tests, and submits PRs. The key innovation: **it accumulates project knowledge over time and gets better at fixing bugs.**
 
-#### Self-Evolution Architecture
+### Self-Evolution Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -75,7 +24,7 @@ An autonomous agent that fetches bugs from Jira, analyzes code, generates patche
 └─────────────────────────────────────────────────────────┘
 ```
 
-**How it learns:**
+### How it Learns
 
 | Phase | What happens | Knowledge gained |
 |-------|-------------|-----------------|
@@ -92,7 +41,7 @@ An autonomous agent that fetches bugs from Jira, analyzes code, generates patche
 Fix bug → Store experience → Next bug search hits it → Better hypothesis → Faster fix
 ```
 
-#### Key Features
+### Key Features
 
 - **6-phase pipeline:** Fetch → Analyze → Patch → Test → PR → Post-fix
 - **Knowledge accumulation:** Three-layer memory (experiences, code understanding, PR reviews)
@@ -101,22 +50,40 @@ Fix bug → Store experience → Next bug search hits it → Better hypothesis �
 - **Web dashboard:** Real-time pipeline visualization at `/bug-fix`
 - **Automated scheduling:** Cron-based daily bug fetching + PR sync
 
-#### Quick Start
+## Project Structure
 
-```bash
-# Fetch a bug and run the pipeline
-cd app/backend
-python -m domains.bug_fix.cli --jira-id PROJ-123
-
-# Sync PR reviews
-python -m domains.bug_fix.pr_sync --project AI --repo corevo --since 7d
-
-# Start the web dashboard
-cd app/frontend && npm run dev
-# Visit http://localhost:5173/bug-fix
+```
+ai-hedge-fund/
+├── app/
+│   ├── backend/                  # FastAPI backend
+│   │   ├── domains/
+│   │   │   └── bug_fix/          # Self-evolving bug fix agent
+│   │   │       ├── analyze_agent.py
+│   │   │       ├── patch_agent.py
+│   │   │       ├── test_agent.py
+│   │   │       ├── pr_agent.py
+│   │   │       ├── post_fix_agent.py
+│   │   │       ├── experience_store.py
+│   │   │       ├── code_understanding_store.py
+│   │   │       ├── pr_embedding/
+│   │   │       └── pr_sync.py
+│   │   ├── routes/               # API routes
+│   │   ├── database/             # SQLite + models
+│   │   ├── repositories/         # Data access layer
+│   │   └── main.py
+│   └── frontend/                 # React + Vite frontend
+│       └── src/
+│           ├── domains/bug-fix/  # Bug Fix Dashboard
+│           ├── components/       # Flow editor, panels, tabs
+│           └── App.tsx
+├── src/
+│   └── llm/                      # LLM integration
+│       └── models.py             # Model providers (used by bug_fix)
+└── docs/
+    └── evaluation-plan.md        # Self-evolution evaluation methodology
 ```
 
-## Setup
+## Quick Start
 
 ### Prerequisites
 
@@ -130,7 +97,7 @@ cd app/frontend && npm run dev
 cd ai-hedge-fund
 poetry install
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with your API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, or DEEPSEEK_API_KEY)
 ```
 
 ### Frontend
@@ -141,16 +108,19 @@ npm install
 npm run dev
 ```
 
-### Environment Variables
+### Run the Bug Fix Pipeline
 
 ```bash
-# LLM (at least one required)
-OPENAI_API_KEY=...
-ANTHROPIC_API_KEY=...
-DEEPSEEK_API_KEY=...
+# Fetch a bug and run the pipeline
+cd app/backend
+python -m domains.bug_fix.cli --jira-id PROJ-123
 
-# Financial data (for hedge fund)
-FINANCIAL_DATASETS_API_KEY=...
+# Sync PR reviews
+python -m domains.bug_fix.pr_sync --project AI --repo corevo --since 7d
+
+# Start the web dashboard
+cd app/frontend && npm run dev
+# Visit http://localhost:5173/bug-fix
 ```
 
 ## Evaluation

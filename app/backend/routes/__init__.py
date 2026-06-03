@@ -1,33 +1,15 @@
-from fastapi import APIRouter
+"""Routes package for AI Agent Platform API."""
 
-from app.backend.core.routes.workflows import router as workflows_router
-from app.backend.routes.health import router as health_router
-from app.backend.routes.storage import router as storage_router
-from app.backend.routes.flows import router as flows_router
-from app.backend.routes.flow_runs import router as flow_runs_router
-from app.backend.routes.ollama import router as ollama_router
-from app.backend.routes.language_models import router as language_models_router
-from app.backend.routes.api_keys import router as api_keys_router
-from app.backend.routes.agents import router as agents_router
-from app.backend.routes.callback import router as callback_router
-from app.backend.routes.agent_builder import router as agent_builder_router
-from app.backend.routes.experiences import router as experiences_router
-from app.backend.routes.bug_fix_dashboard import router as bug_fix_dashboard_router
+from .health import router as health_router
+from .storage import router as storage_router
+from .api_keys import router as api_keys_router
+from .experiences import router as experiences_router
+from .bug_fix_dashboard import router as bug_fix_router
 
-# Main API router
-api_router = APIRouter()
-
-# Include sub-routers
-api_router.include_router(health_router, tags=["health"])
-api_router.include_router(workflows_router)
-api_router.include_router(storage_router, tags=["storage"])
-api_router.include_router(flows_router, tags=["flows"])
-api_router.include_router(flow_runs_router, tags=["flow-runs"])
-api_router.include_router(ollama_router, tags=["ollama"])
-api_router.include_router(language_models_router, tags=["language-models"])
-api_router.include_router(api_keys_router, tags=["api-keys"])
-api_router.include_router(agents_router, tags=["agents"])
-api_router.include_router(callback_router, tags=["callback"])
-api_router.include_router(agent_builder_router, tags=["agent-builder"])
-api_router.include_router(experiences_router, tags=["experiences"])
-api_router.include_router(bug_fix_dashboard_router, tags=["bug-fix"])
+__all__ = [
+    "health_router",
+    "storage_router",
+    "api_keys_router",
+    "experiences_router",
+    "bug_fix_router",
+]

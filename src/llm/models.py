@@ -224,7 +224,7 @@ def get_model(model_name: str, model_provider: ModelProvider, api_keys: dict = N
         
         # Get optional site URL and name for headers
         site_url = os.getenv("YOUR_SITE_URL", "https://github.com/virattt/ai-hedge-fund")
-        site_name = os.getenv("YOUR_SITE_NAME", "AI Hedge Fund")
+        site_name = os.getenv("YOUR_SITE_NAME", "AI Agent Platform")
         
         return ChatOpenAI(
             model=model_name,

@@ -33,7 +33,7 @@ class HedgeFundFlow(Base):
 
 
 class HedgeFundFlowRun(Base):
-    """Table to track individual execution runs of a hedge fund flow"""
+    """Table to track individual execution runs of a flow"""
     __tablename__ = "hedge_fund_flow_runs"
     
     id = Column(Integer, primary_key=True, index=True)
