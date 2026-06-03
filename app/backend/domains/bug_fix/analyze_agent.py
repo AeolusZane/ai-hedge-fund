@@ -305,6 +305,41 @@ Rules:
 """
 
 
+_VERIFY_PROMPT = """\
+You are verifying a cached understanding of code that has changed since it was last analyzed.
+
+## Cached Understanding
+File: {file_path}
+Context: {context_key}
+Previous understanding: {understanding}
+Previous call chain: {call_chain}
+Previous data flow: {data_flow}
+
+## Current Code
+```
+{current_code}
+```
+
+Compare the cached understanding with the current code. Identify what changed and what's still accurate.
+
+Return ONLY a JSON object (no prose, no markdown fences):
+{{
+  "changed": true,
+  "understanding": "updated understanding of what this code does now (be specific and detailed)",
+  "call_chain": ["step1", "step2", "step3"],
+  "data_flow": "how data flows through this code now",
+  "changes_summary": "brief summary of what changed vs the cached understanding"
+}}
+
+Rules:
+- If the code logic is essentially the same, set changed=false and keep the understanding as-is
+- If the code changed significantly, update understanding/call_chain/data_flow to reflect current state
+- Keep the understanding concise but complete — future analyses will rely on it
+- call_chain should list the key function calls in order
+- data_flow should describe how data moves through this code area
+"""
+
+
 _PHASE3_PROMPT = """\
 You are a senior engineer who has investigated a bug. You started with a Jira \
 issue and searched the codebase. Now form your root cause hypothesis.
@@ -626,19 +661,82 @@ async def analyze_jira_issue(
                     cu_store, searched_files, repo_path
                 )
 
+                # ── Active Verification for Stale Entries ──────────────
+                # For stale cached understandings, read current code and ask LLM
+                # to verify/correct. This is a lightweight call (~1 file + cached text)
+                # instead of full re-analysis.
+                stale_entries = [h for h in code_cache_hits if h["status"] == "stale"]
+                verified_corrections = []
+
+                for stale_hit in stale_entries:
+                    try:
+                        file_path = stale_hit["file_path"]
+                        full_path = Path(repo_path) / file_path
+                        if not full_path.exists():
+                            continue
+
+                        # Read current code (limit to first 200 lines to keep token cost low)
+                        current_code = full_path.read_text(errors="replace")
+                        code_lines = current_code.split("\n")[:200]
+                        current_code_truncated = "\n".join(code_lines)
+
+                        # Look up the full cached understanding
+                        cached_cu = cu_store.lookup(file_path, stale_hit.get("context_key", ""))
+                        if not cached_cu:
+                            continue
+
+                        # Ask LLM to verify and correct
+                        verify_prompt = _VERIFY_PROMPT.format(
+                            file_path=file_path,
+                            context_key=cached_cu.context_key or "module",
+                            understanding=cached_cu.understanding,
+                            call_chain=" → ".join(cached_cu.call_chain) if cached_cu.call_chain else "(none)",
+                            data_flow=cached_cu.data_flow or "(none)",
+                            current_code=current_code_truncated,
+                        )
+
+                        verify_text, verify_usage = await _llm_invoke(llm, verify_prompt)
+                        total_usage["input_tokens"] += verify_usage["input_tokens"]
+                        total_usage["output_tokens"] += verify_usage["output_tokens"]
+
+                        verify_result = _parse_json_response(verify_text)
+
+                        if verify_result.get("changed", True):
+                            # Code changed — update the cached understanding
+                            cached_cu.understanding = verify_result.get("understanding", cached_cu.understanding)
+                            cached_cu.call_chain = verify_result.get("call_chain", cached_cu.call_chain)
+                            cached_cu.data_flow = verify_result.get("data_flow", cached_cu.data_flow)
+                            cached_cu.file_hash = compute_file_hash(full_path)
+                            cu_store.store(cached_cu)
+
+                            verified_corrections.append({
+                                "file_path": file_path,
+                                "changes_summary": verify_result.get("changes_summary", "updated"),
+                            })
+                    except Exception as e:
+                        logger.warning(f"Failed to verify stale cache for {stale_hit.get('file_path', '?')}: {e}")
+
                 if code_cache_hits and on_decision_step:
                     verified = sum(1 for h in code_cache_hits if h["status"] == "verified")
-                    stale = sum(1 for h in code_cache_hits if h["status"] == "stale")
+                    stale = len(stale_entries)
+                    corrected = len(verified_corrections)
                     await on_decision_step({
                         "step": "code_cache_lookup",
-                        "description": f"Found {len(code_cache_hits)} cached understandings ({verified} verified, {stale} stale)",
+                        "description": f"Found {len(code_cache_hits)} cached understandings ({verified} verified, {stale} stale, {corrected} corrected)",
                         "details": {
                             "files_searched": len(searched_files),
                             "cache_hits": code_cache_hits,
-                            "mode": "reuse" if verified > 0 else "verify",
+                            "corrections": verified_corrections,
+                            "mode": "reuse" if verified > 0 else ("corrected" if corrected > 0 else "verify"),
                         },
-                        "confidence": 0.9 if verified > 0 else 0.5,
+                        "confidence": 0.9 if verified > 0 else (0.7 if corrected > 0 else 0.5),
                     })
+
+                # Rebuild context with corrected understandings
+                if verified_corrections:
+                    code_cache_context, code_cache_hits = build_understanding_context(
+                        cu_store, searched_files, repo_path
+                    )
         except Exception as e:
             logger.warning(f"Code understanding cache lookup failed: {e}")
 
