@@ -13,6 +13,7 @@ meaningful to do without the Jira context.
 from __future__ import annotations
 
 import asyncio
+import copy
 from collections import deque
 from typing import Any
 
@@ -185,7 +186,11 @@ class BugFixExecutor(WorkflowExecutor):
     async def run(self, request: dict[str, Any], context: ExecutorContext) -> dict[str, Any]:
         delay = float(request.get("stage_delay_seconds", 0.4))
         issue_key = str(request.get("jira_issue") or "").strip()
-        if not issue_key:
+        
+        # Check if this is a rerun from a specific node
+        rerun_from_node = request.get("rerun_from_node")
+        
+        if not issue_key and not rerun_from_node:
             raise ValueError("jira_issue is required in the request payload")
 
         graph_nodes = request.get("graph_nodes") or []
@@ -195,16 +200,33 @@ class BugFixExecutor(WorkflowExecutor):
         # Get run_id from context for workspace isolation
         run_id = context.run_id if hasattr(context, "run_id") else None
 
-        state: dict[str, Any] = {
-            "issue_key": issue_key,
-            "api_keys": context.api_keys,
-            "run_id": run_id,
-        }
+        # For reruns, use the provided state; otherwise create fresh state
+        if rerun_from_node:
+            # State is already populated from the snapshot via the API
+            state: dict[str, Any] = {
+                "issue_key": issue_key or request.get("issue_key", ""),
+                "api_keys": context.api_keys,
+                "run_id": run_id,
+            }
+            # Copy over any existing state from the request (from snapshot)
+            for key in ["jira_detail", "analysis", "patch", "repo_path", "pr_target_branch"]:
+                if key in request:
+                    state[key] = request[key]
+            # Add human context if provided
+            if request.get("human_context"):
+                state["human_context"] = request["human_context"]
+        else:
+            state = {
+                "issue_key": issue_key,
+                "api_keys": context.api_keys,
+                "run_id": run_id,
+            }
 
         try:
             if runnable_nodes:
                 stages_executed = await self._run_graph(
-                    runnable_nodes, graph_edges, delay, state, context
+                    runnable_nodes, graph_edges, delay, state, context,
+                    start_from_node=rerun_from_node
                 )
             else:
                 stages_executed = await self._run_default(delay, state, context)
@@ -220,10 +242,31 @@ class BugFixExecutor(WorkflowExecutor):
         delay: float,
         state: dict[str, Any],
         context: ExecutorContext,
+        start_from_node: str | None = None,
     ) -> list[dict[str, str]]:
         ordered = _topological_order(nodes, edges)
         stages_executed: list[dict[str, str]] = []
+        
+        # Initialize state snapshots storage
+        if not hasattr(self, '_state_snapshots'):
+            self._state_snapshots = {}
+        
+        run_id = context.run_id or state.get('run_id') or 'default'
+        if run_id not in self._state_snapshots:
+            self._state_snapshots[run_id] = {}
+        
+        # If start_from_node is specified, skip nodes before it
+        should_execute = start_from_node is None
         for n in ordered:
+            node_id = n.get("id", "")
+            
+            # Check if we've reached the start node
+            if not should_execute and node_id == start_from_node:
+                should_execute = True
+            
+            if not should_execute:
+                continue  # Skip this node
+            
             if context.is_cancelled():
                 raise asyncio.CancelledError()
             node_type = n.get("type", "")
@@ -243,6 +286,11 @@ class BugFixExecutor(WorkflowExecutor):
                 state=state,
                 context=context,
             )
+            
+            # Save state snapshot after node completes
+            # Deep copy to avoid reference issues
+            self._state_snapshots[run_id][node_id] = copy.deepcopy(state)
+        
         return stages_executed
 
     async def _run_default(

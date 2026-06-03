@@ -391,6 +391,182 @@ async def retry_node(
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+# ── Re-run from Node Routes ───────────────────────────────────────────────────
+
+class RerunFromNodeRequest(BaseModel):
+    """Request to re-run workflow from a specific node using saved state snapshot."""
+    flow_id: int
+    run_id: int
+    from_node_id: str
+    extra_context: Optional[str] = None  # Optional human-provided context to inject
+
+
+@router.post("/{domain}/rerun-from-node")
+async def rerun_from_node(
+    domain: str,
+    request_data: RerunFromNodeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Re-run workflow from a specific node using saved state snapshot.
+    
+    This allows users to intervene and re-execute from any point in the workflow,
+    optionally injecting additional context (e.g., "also check utils.ts").
+    """
+    try:
+        executor = executor_registry.get(domain)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Unknown domain {domain!r}")
+    
+    # Check if executor has state snapshots
+    if not hasattr(executor, '_state_snapshots'):
+        raise HTTPException(status_code=400, detail="No state snapshots available")
+    
+    run_id = request_data.run_id
+    if run_id not in executor._state_snapshots:
+        raise HTTPException(status_code=404, detail=f"No snapshots for run {run_id}")
+    
+    from_node_id = request_data.from_node_id
+    if from_node_id not in executor._state_snapshots[run_id]:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"No snapshot for node {from_node_id} in run {run_id}"
+        )
+    
+    # Load the saved state snapshot
+    import copy
+    saved_state = copy.deepcopy(executor._state_snapshots[run_id][from_node_id])
+    
+    # Inject extra context if provided
+    if request_data.extra_context:
+        saved_state['human_context'] = request_data.extra_context
+    
+    flow_run_repo = FlowRunRepository(db)
+    flow_run = flow_run_repo.get_flow_run(request_data.flow_id)
+    if not flow_run:
+        raise HTTPException(status_code=404, detail=f"FlowRun {request_data.flow_id} not found")
+    
+    api_keys = ApiKeyService(db).get_api_keys_dict()
+    
+    async def wait_for_disconnect() -> bool:
+        try:
+            while True:
+                message = await request.receive()
+                if message["type"] == "http.disconnect":
+                    return True
+        except Exception:
+            return True
+    
+    async def event_generator():
+        progress_queue: asyncio.Queue = asyncio.Queue()
+        run_task = None
+        disconnect_task = None
+        cancelled = {"value": False}
+        
+        def emit(event: ProgressEvent) -> None:
+            payload = event.payload or {}
+            progress_queue.put_nowait(
+                ProgressUpdateEvent(
+                    agent=event.node_id,
+                    ticker=payload.get("ticker"),
+                    status=event.status,
+                    timestamp=payload.get("timestamp"),
+                    analysis=payload.get("analysis"),
+                    chunk=payload.get("chunk"),
+                    payload=payload,
+                )
+            )
+        
+        context = ExecutorContext(
+            db=db,
+            api_keys=api_keys or {},
+            emit=emit,
+            is_cancelled=lambda: cancelled["value"],
+            run_id=flow_run.id if flow_run else None,
+        )
+        
+        # Build rerun payload with saved state
+        rerun_payload = {
+            **saved_state,
+            "rerun_from_node": from_node_id,
+            "original_run_id": run_id,
+        }
+        
+        try:
+            run_task = asyncio.create_task(executor.run(rerun_payload, context))
+            disconnect_task = asyncio.create_task(wait_for_disconnect())
+            
+            yield StartEvent(run_id=flow_run.id if flow_run else None).to_sse()
+            
+            while not run_task.done():
+                if disconnect_task.done():
+                    cancelled["value"] = True
+                    run_task.cancel()
+                    try:
+                        await run_task
+                    except asyncio.CancelledError:
+                        pass
+                    return
+                
+                try:
+                    event = await asyncio.wait_for(progress_queue.get(), timeout=1.0)
+                    yield event.to_sse()
+                except asyncio.TimeoutError:
+                    pass
+            
+            try:
+                final_payload = await run_task
+            except asyncio.CancelledError:
+                return
+            
+            # Update flow run with rerun results
+            has_error = any(
+                key.endswith("_error") and final_payload.get(key)
+                for key in final_payload
+            )
+            if has_error:
+                error_messages = [
+                    f"{k}: {v}" for k, v in final_payload.items()
+                    if k.endswith("_error") and v
+                ]
+                flow_run_repo.update_flow_run(
+                    flow_run.id,
+                    status=FlowRunStatus.ERROR,
+                    error_message="; ".join(error_messages),
+                    results=final_payload,
+                )
+            else:
+                flow_run_repo.update_flow_run(
+                    flow_run.id, status=FlowRunStatus.COMPLETE, results=final_payload
+                )
+            yield CompleteEvent(data=final_payload).to_sse()
+        
+        except asyncio.CancelledError:
+            flow_run_repo.update_flow_run(
+                flow_run.id,
+                status=FlowRunStatus.ERROR,
+                error_message="Rerun cancelled by client",
+            )
+            return
+        except Exception as exc:
+            flow_run_repo.update_flow_run(
+                flow_run.id, status=FlowRunStatus.ERROR, error_message=str(exc)
+            )
+            yield ErrorEvent(message=str(exc)).to_sse()
+            return
+        finally:
+            if run_task and not run_task.done():
+                run_task.cancel()
+                try:
+                    await run_task
+                except asyncio.CancelledError:
+                    pass
+            if disconnect_task and not disconnect_task.done():
+                disconnect_task.cancel()
+    
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 # ── Workspace / Sandbox Routes ────────────────────────────────────────────────
 
 @router.get("/{domain}/workspace/{run_id}/files")

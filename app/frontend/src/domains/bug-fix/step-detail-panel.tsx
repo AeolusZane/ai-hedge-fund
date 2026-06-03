@@ -5,11 +5,12 @@ import { NodeChat } from '@/domains/bug-fix/node-chat';
 import { useNodeOutput } from '@/domains/bug-fix/node-output-store';
 import { useStepDetailTarget, closeStepDetail } from '@/domains/bug-fix/step-detail-context';
 import { WorkspaceBrowser } from '@/domains/bug-fix/workspace-browser';
+import { useFlowContext } from '@/contexts/flow-context';
 import { cn } from '@/lib/utils';
 import type { NodeStatus } from '@/nodes/utils';
 import { getStatusColor, elapsedSeconds } from '@/nodes/utils';
 import { useReactFlow } from '@xyflow/react';
-import { CheckCircle2, Loader2, XCircle, Pause, ArrowLeft, RotateCcw, FolderOpen } from 'lucide-react';
+import { CheckCircle2, Loader2, XCircle, Pause, ArrowLeft, FolderOpen, Play } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 function StatusIcon({ status }: { status: NodeStatus }) {
@@ -33,6 +34,7 @@ export function StepDetailPanel() {
   const target = useStepDetailTarget();
   const nodeOutput = useNodeOutput();
   const reactFlow = useReactFlow();
+  const { currentFlowId } = useFlowContext();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
 
   if (!target) return null;
@@ -70,10 +72,45 @@ export function StepDetailPanel() {
     );
   };
 
-  // Retry: re-run the pipeline (placeholder — full retry needs backend support)
-  const handleRetry = () => {
-    // TODO: implement single-node retry via API
-    console.log('Retry requested for node:', agentId);
+  // Retry: re-run from this node using saved state snapshot
+  const [rerunContext, setRerunContext] = useState('');
+  const [isRerunning, setIsRerunning] = useState(false);
+  
+  const handleRetry = async () => {
+    if (!runId || !currentFlowId) {
+      console.error('Missing runId or flowId for rerun');
+      return;
+    }
+    
+    setIsRerunning(true);
+    try {
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${API_BASE_URL}/workflows/bug_fix/rerun-from-node`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flow_id: currentFlowId,
+          run_id: runId,
+          from_node_id: agentId,
+          extra_context: rerunContext || undefined,
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('Rerun failed:', error);
+        alert(`Rerun failed: ${error.detail || 'Unknown error'}`);
+      } else {
+        console.log('Rerun started from node:', agentId);
+        // Clear the context input after successful rerun
+        setRerunContext('');
+      }
+    } catch (error) {
+      console.error('Rerun request failed:', error);
+      alert('Rerun request failed. Check console for details.');
+    } finally {
+      setIsRerunning(false);
+    }
   };
 
   // Extract result slice for this stage (needed for status derivation)
@@ -423,17 +460,34 @@ export function StepDetailPanel() {
         onRetry={handleRetry}
       />
 
-      {/* Footer — re-run button (placeholder for future interrupt mechanism) */}
-      <div className="px-4 py-2 border-t">
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full text-xs gap-1 opacity-50 cursor-not-allowed"
-          disabled
-        >
-          <RotateCcw className="h-3 w-3" /> Re-run from this step (coming soon)
-        </Button>
-      </div>
+      {/* Footer — re-run from this step */}
+      {runId && status !== 'IDLE' && (
+        <div className="px-4 py-2 border-t space-y-2">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+            Re-run from this step
+          </div>
+          <textarea
+            value={rerunContext}
+            onChange={(e) => setRerunContext(e.target.value)}
+            placeholder="Optional: add context or instructions (e.g., 'also check utils.ts')"
+            className="w-full min-h-[50px] text-xs resize-none rounded-md border border-input bg-background px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full text-xs gap-1"
+            disabled={isRerunning}
+            onClick={handleRetry}
+          >
+            {isRerunning ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Play className="h-3 w-3" />
+            )}
+            {isRerunning ? 'Starting re-run...' : 'Re-run from here'}
+          </Button>
+        </div>
+      )}
 
       {/* Workspace Browser Modal */}
       {runId && (
