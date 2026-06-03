@@ -40,9 +40,10 @@ def _get_jira_config() -> tuple[str, str, str]:
 
 
 async def search_bugs(
-    project_key: str,
-    status: str = "Open",
-    issue_type: str = "Bug",
+    project_key: str = "",
+    status: str = "",
+    issue_type: str = "",
+    assignee_current_user: bool = True,
     max_results: int = 20,
 ) -> list[dict[str, Any]]:
     """Search Jira for bug issues matching the criteria.
@@ -50,9 +51,10 @@ async def search_bugs(
     Uses JQL (Jira Query Language) to find bugs in the specified project.
 
     Args:
-        project_key: Jira project key (e.g. "AI", "BUSSINESS")
-        status: Issue status to filter (e.g. "Open", "To Do", "In Progress")
-        issue_type: Issue type (default: "Bug")
+        project_key: Jira project key (e.g. "BI", "REPORT"). Empty = all projects.
+        status: Issue status to filter. Empty = exclude closed statuses.
+        issue_type: Issue type. Empty = all bug types.
+        assignee_current_user: If True, filter by current user as assignee.
         max_results: Maximum number of results to return
 
     Returns:
@@ -61,11 +63,31 @@ async def search_bugs(
     """
     base_url, username, token = _get_jira_config()
 
+    # Default bug types for Chinese Jira instances
+    default_bug_types = '"客户BUG","一般BUG","内测BUG","缺陷","BUG"'
+    # Default closed statuses for Chinese Jira instances
+    default_closed_statuses = '"已解决","终止","被否决","结束","完成","关闭","终止开发","Resolved","Closed"'
+
     # Build JQL query
-    jql = f'project = "{project_key}" AND issuetype = "{issue_type}"'
+    jql_parts = []
+
+    if project_key:
+        jql_parts.append(f'project = "{project_key}"')
+
+    if issue_type:
+        jql_parts.append(f'issuetype = "{issue_type}"')
+    else:
+        jql_parts.append(f'issuetype in ({default_bug_types})')
+
     if status:
-        jql += f' AND status = "{status}"'
-    jql += " ORDER BY created DESC"
+        jql_parts.append(f'status = "{status}"')
+    else:
+        jql_parts.append(f'status not in ({default_closed_statuses})')
+
+    if assignee_current_user:
+        jql_parts.append('assignee = currentUser()')
+
+    jql = " AND ".join(jql_parts) + " ORDER BY updated DESC"
 
     url = f"{base_url}/rest/api/2/search"
     params = {
@@ -113,6 +135,8 @@ async def search_bugs(
             "created": fields.get("created", ""),
             "updated": fields.get("updated", ""),
             "description": fields.get("description", ""),
+            "issuetype": (fields.get("issuetype") or {}).get("name", ""),
+            "project": (fields.get("project") or {}).get("key", ""),
         })
 
     return results

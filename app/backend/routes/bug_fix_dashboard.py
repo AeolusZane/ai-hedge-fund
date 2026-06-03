@@ -19,8 +19,8 @@ router = APIRouter(prefix="/bug-fix", tags=["bug-fix"])
 
 @router.get("/jira/bugs")
 async def list_jira_bugs(
-    project: str = Query(..., description="Jira project key"),
-    status: str = Query("Open", description="Bug status filter"),
+    project: str = Query("", description="Jira project key (empty = all)"),
+    status: str = Query("", description="Bug status filter (empty = exclude closed)"),
     max_results: int = Query(20, ge=1, le=100),
 ):
     """Fetch open bugs from Jira for the given project."""

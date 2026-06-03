@@ -39,19 +39,21 @@ export function BugFixDashboard() {
   const [runs, setRuns] = useState<BugFixRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<'active' | 'bugs' | 'history'>('active');
-  const [selectedProject, setSelectedProject] = useState('AI');
+  const [selectedProject, setSelectedProject] = useState('');
   const [triggering, setTriggering] = useState<string | null>(null);
 
   const projects = [
-    { key: 'AI', name: 'Corevo' },
-    { key: 'BUSSINESS', name: 'Nuclear' },
-    { key: 'DATAFUSION', name: 'Data Fusion' },
+    { key: '', name: '所有项目' },
+    { key: 'BI', name: 'BI' },
+    { key: 'REPORT', name: 'Report' },
+    { key: 'KERNEL', name: 'Kernel' },
+    { key: 'SLN', name: 'SLN' },
   ];
 
   const fetchBugs = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/bug-fix/jira/bugs?project=${selectedProject}&status=Open`);
+      const res = await fetch(`/bug-fix/jira/bugs?project=${selectedProject}`);
       if (res.ok) {
         const data = await res.json();
         setBugs(data.bugs || []);
@@ -230,7 +232,7 @@ export function BugFixDashboard() {
           ) : bugs.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground">
               <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-green-500 opacity-40" />
-              <p>No open bugs in {selectedProject}</p>
+              <p>No open bugs{selectedProject ? ` in ${selectedProject}` : ''}</p>
             </div>
           ) : (
             bugs.map(bug => {
