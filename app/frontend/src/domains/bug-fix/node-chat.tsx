@@ -23,6 +23,7 @@ interface NodeChatProps {
   nodeStatus?: string;
   repoUrl?: string;
   workspacePath?: string;
+  runId?: number | null;
   onConfigUpdate?: (key: string, value: string) => void;
   onRetry?: () => void;
 }
@@ -38,6 +39,7 @@ export function NodeChat({
   nodeStatus,
   repoUrl,
   workspacePath,
+  runId,
   onConfigUpdate,
   onRetry,
 }: NodeChatProps) {
@@ -45,8 +47,37 @@ export function NodeChat({
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [pendingRetry, setPendingRetry] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
+
+  // Load persisted messages on mount
+  useEffect(() => {
+    if (!runId || loaded) return;
+    fetch(`${API_BASE_URL}/workflows/bug_fix/chat/${runId}/${nodeId}`)
+      .then(res => res.ok ? res.json() : { messages: [] })
+      .then(data => {
+        if (data.messages?.length > 0) {
+          setMessages(data.messages);
+        }
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, [runId, nodeId, loaded]);
+
+  // Save messages to backend
+  const saveMessages = useCallback((msgs: Message[]) => {
+    if (!runId || msgs.length === 0) return;
+    fetch(`${API_BASE_URL}/workflows/bug_fix/chat/${runId}/${nodeId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: msgs.map(m => ({ role: m.role, content: m.content, tool_calls: m.toolCalls })),
+      }),
+    }).catch(() => {/* silent fail */});
+  }, [runId, nodeId]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -166,6 +197,8 @@ export function NodeChat({
     } finally {
       setIsStreaming(false);
       abortControllerRef.current = null;
+      // Persist messages after each exchange
+      saveMessages(messagesRef.current);
     }
   };
 

@@ -100,6 +100,21 @@ class HedgeFundFlowRunCycle(Base):
     market_conditions = Column(JSON, nullable=True)  # Market data snapshot at cycle start
 
 
+class HedgeFundChatMessage(Base):
+    """Persist Agent chat messages per (run, node) so conversations survive tab switches."""
+    __tablename__ = "hedge_fund_chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    flow_run_id = Column(Integer, ForeignKey("hedge_fund_flow_runs.id"), nullable=False, index=True)
+    node_id = Column(String(128), nullable=False, index=True)  # e.g. "analyze", "patch"
+
+    role = Column(String(20), nullable=False)  # "user" | "assistant"
+    content = Column(Text, nullable=False)
+    tool_calls = Column(JSON, nullable=True)  # optional tool call metadata
+
+
 class ApiKey(Base):
     """Table to store API keys for various services"""
     __tablename__ = "api_keys"

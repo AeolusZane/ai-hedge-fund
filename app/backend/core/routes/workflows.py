@@ -449,3 +449,65 @@ async def delete_workspace(
 
     cleanup_workspace(run_id)
     return {"status": "deleted", "run_id": run_id}
+
+
+# ── Chat Message Persistence ──────────────────────────────────────────────────
+
+class ChatMessageSaveRequest(BaseModel):
+    """Batch-save chat messages for a (run, node) pair."""
+    messages: list[dict[str, Any]]  # [{role, content, tool_calls?}]
+
+
+@router.get("/{domain}/chat/{run_id}/{node_id}")
+async def get_chat_messages(
+    domain: str,
+    run_id: int,
+    node_id: str,
+    db: Session = Depends(get_db),
+):
+    """Load persisted chat messages for a specific run + node."""
+    from app.backend.database.models import HedgeFundChatMessage
+
+    rows = (
+        db.query(HedgeFundChatMessage)
+        .filter(HedgeFundChatMessage.flow_run_id == run_id, HedgeFundChatMessage.node_id == node_id)
+        .order_by(HedgeFundChatMessage.created_at.asc())
+        .all()
+    )
+    return {
+        "messages": [
+            {"role": r.role, "content": r.content, "tool_calls": r.tool_calls}
+            for r in rows
+        ]
+    }
+
+
+@router.put("/{domain}/chat/{run_id}/{node_id}")
+async def save_chat_messages(
+    domain: str,
+    run_id: int,
+    node_id: str,
+    request_data: ChatMessageSaveRequest,
+    db: Session = Depends(get_db),
+):
+    """Replace all chat messages for a (run, node) pair with the provided list."""
+    from app.backend.database.models import HedgeFundChatMessage
+
+    # Delete existing messages for this (run, node)
+    db.query(HedgeFundChatMessage).filter(
+        HedgeFundChatMessage.flow_run_id == run_id,
+        HedgeFundChatMessage.node_id == node_id,
+    ).delete(synchronize_session=False)
+
+    # Insert new messages
+    for msg in request_data.messages:
+        db.add(HedgeFundChatMessage(
+            flow_run_id=run_id,
+            node_id=node_id,
+            role=msg["role"],
+            content=msg["content"],
+            tool_calls=msg.get("tool_calls"),
+        ))
+
+    db.commit()
+    return {"status": "saved", "count": len(request_data.messages)}

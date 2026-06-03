@@ -407,6 +407,7 @@ export function StepDetailPanel() {
           nodeStatus={status}
           repoUrl={nodeConfig.repoUrl as string | undefined}
           workspacePath={runId ? `/workspace/${runId}` : undefined}
+          runId={runId}
           onConfigUpdate={handleConfigUpdate}
           onRetry={handleRetry}
         />
