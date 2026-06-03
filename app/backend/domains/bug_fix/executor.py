@@ -372,9 +372,10 @@ class BugFixExecutor(WorkflowExecutor):
         # Clone repo into workspace
         run_id = state.get("run_id")
         if not run_id:
-            state["patch_error"] = "Patch requires a run_id (internal error — flow run not initialized)"
-            done_payload["error"] = state["patch_error"]
-            return
+            # Generate a temporary run_id when flow_id wasn't provided
+            import time
+            run_id = int(time.time())
+            state["run_id"] = run_id
 
         try:
             repo_path_obj = await clone_repo(
