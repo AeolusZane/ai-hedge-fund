@@ -1,17 +1,44 @@
 import os
 import json
-from langchain_anthropic import ChatAnthropic
-from langchain_deepseek import ChatDeepSeek
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_groq import ChatGroq
-from langchain_xai import ChatXAI
-from langchain_openai import ChatOpenAI, AzureChatOpenAI
-from langchain_gigachat import GigaChat
-from langchain_ollama import ChatOllama
 from enum import Enum
 from pydantic import BaseModel
 from typing import Tuple, List
 from pathlib import Path
+
+# Lazy imports — missing packages won't block startup
+try:
+    from langchain_anthropic import ChatAnthropic
+except ImportError:
+    ChatAnthropic = None  # type: ignore
+try:
+    from langchain_deepseek import ChatDeepSeek
+except ImportError:
+    ChatDeepSeek = None  # type: ignore
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError:
+    ChatGoogleGenerativeAI = None  # type: ignore
+try:
+    from langchain_groq import ChatGroq
+except ImportError:
+    ChatGroq = None  # type: ignore
+try:
+    from langchain_xai import ChatXAI
+except ImportError:
+    ChatXAI = None  # type: ignore
+try:
+    from langchain_openai import ChatOpenAI, AzureChatOpenAI
+except ImportError:
+    ChatOpenAI = None  # type: ignore
+    AzureChatOpenAI = None  # type: ignore
+try:
+    from langchain_gigachat import GigaChat
+except ImportError:
+    GigaChat = None  # type: ignore
+try:
+    from langchain_ollama import ChatOllama
+except ImportError:
+    ChatOllama = None  # type: ignore
 
 
 class ModelProvider(str, Enum):

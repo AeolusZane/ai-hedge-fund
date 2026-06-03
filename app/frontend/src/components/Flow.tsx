@@ -250,10 +250,11 @@ export function Flow({ className = '' }: FlowProps) {
   // Connect two nodes with marker
   const onConnect = useCallback(
     (connection: Connection) => {
-      // Create a new edge with a marker and unique ID
+      // Create a new edge with animated type and marker
       const newEdge: Edge = {
         ...connection,
         id: `edge-${Date.now()}`, // Add unique ID
+        type: 'animated', // Use our custom animated edge
         markerEnd: {
           type: MarkerType.ArrowClosed,
         },
@@ -309,6 +310,10 @@ export function Flow({ className = '' }: FlowProps) {
           onInit={onInit}
           colorMode={colorMode}
           proOptions={proOptions}
+          defaultEdgeOptions={{
+            type: 'animated',
+            markerEnd: { type: MarkerType.ArrowClosed },
+          }}
         >
           <Background 
             variant={BackgroundVariant.Dots}

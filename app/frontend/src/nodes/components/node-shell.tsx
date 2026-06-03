@@ -58,16 +58,24 @@ export function NodeShell({
   const elapsed = runInfo ? elapsedSeconds(runInfo) : null;
   const progress = runInfo?.progress ?? 0;
 
+  // Handle colors based on node status
+  const handleColor = status === 'COMPLETE' ? 'bg-green-500' 
+    : status === 'ERROR' ? 'bg-red-500'
+    : isInProgress ? 'bg-amber-500'
+    : 'bg-slate-400';
+  const handleGlow = isInProgress ? 'shadow-[0_0_8px_3px_rgba(245,158,11,0.4)]' : '';
+
   return (
     <div
       className={cn(
-        "react-flow__node-default relative select-none cursor-pointer p-0 rounded-lg border border-node transition-all duration-200",
+        "react-flow__node-default relative select-none cursor-pointer p-0 rounded-lg border border-node transition-all duration-300",
         width,
         !selected && "hover:border-node-hover hover:shadow-lg",
         selected && "border-node-selected shadow-xl",
         isInProgress && "node-in-progress",
         isPaused && "node-in-progress",
-        status === 'ERROR' && "border-red-400 dark:border-red-600",
+        status === 'COMPLETE' && "border-green-400 dark:border-green-600 shadow-[0_0_12px_2px_rgba(34,197,94,0.2)]",
+        status === 'ERROR' && "border-red-400 dark:border-red-600 shadow-[0_0_12px_2px_rgba(239,68,68,0.25)] node-error-shake",
       )}
       data-id={id}
       data-nodeid={id}
@@ -75,11 +83,19 @@ export function NodeShell({
       {isInProgress && (
         <div className="animated-border-container"></div>
       )}
+      {status === 'COMPLETE' && (
+        <div className="absolute inset-0 rounded-lg border-2 border-green-500/30 pointer-events-none"></div>
+      )}
       {hasLeftHandle && (
         <Handle
           type="target"
           position={Position.Left}
-          className="w-3 h-3 rounded-full bg-gray-500 border-2 border-card absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 transition-all duration-200 hover:bg-gray-500 hover:w-4 hover:h-4 hover:shadow-[0_0_5px_2px_rgba(59,130,246,0.3)]"
+          className={cn(
+            "w-4 h-4 rounded-full border-2 border-card absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 transition-all duration-300",
+            "hover:w-5 hover:h-5 hover:shadow-[0_0_12px_4px_rgba(59,130,246,0.5)]",
+            handleColor,
+            handleGlow
+          )}
           isConnectable={isConnectable}
         />
       )}
@@ -151,7 +167,12 @@ export function NodeShell({
         <Handle
           type="source"
           position={Position.Right}
-          className="w-3 h-3 rounded-full bg-gray-500 border-2 border-card absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 z-10 transition-all duration-200 hover:bg-gray-500 hover:w-4 hover:h-4 hover:shadow-[0_0_5px_2px_rgba(59,130,246,0.3)]"
+          className={cn(
+            "w-4 h-4 rounded-full border-2 border-card absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 z-10 transition-all duration-300",
+            "hover:w-5 hover:h-5 hover:shadow-[0_0_12px_4px_rgba(59,130,246,0.5)]",
+            handleColor,
+            handleGlow
+          )}
           isConnectable={isConnectable}
         />
       )}

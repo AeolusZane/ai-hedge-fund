@@ -346,6 +346,27 @@
   color: transparent;
 }
 
+/* Animated edge — flowing dashes when data is transmitting */
+@keyframes edgeFlow {
+  0% {
+    stroke-dashoffset: 24;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Error shake — brief attention-grabbing shake on failure */
+@keyframes errorShake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+  20%, 40%, 60%, 80% { transform: translateX(2px); }
+}
+
+.node-error-shake {
+  animation: errorShake 0.5s ease-in-out;
+}
+
 /* Remove white lines between ReactFlow Controls buttons */
 .react-flow__controls .react-flow__controls-button {
   border-right: none !important;

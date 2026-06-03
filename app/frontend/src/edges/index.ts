@@ -1,6 +1,6 @@
 import type { EdgeTypes } from '@xyflow/react';
-
+import { AnimatedEdge } from './animated-edge';
 
 export const edgeTypes = {
-  // Add your custom edge types here!
+  animated: AnimatedEdge,
 } satisfies EdgeTypes;
