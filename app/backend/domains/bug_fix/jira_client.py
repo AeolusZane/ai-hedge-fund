@@ -66,7 +66,7 @@ async def search_bugs(
     # Default bug types for Chinese Jira instances
     default_bug_types = '"客户BUG","一般BUG","内测BUG","缺陷","BUG"'
     # Default closed statuses for Chinese Jira instances
-    default_closed_statuses = '"已解决","终止","被否决","结束","完成","关闭","终止开发","Resolved","Closed"'
+    default_closed_statuses = '"已解决","终止","被否决","结束","完成","关闭","终止开发"'
 
     # Build JQL query
     jql_parts = []
