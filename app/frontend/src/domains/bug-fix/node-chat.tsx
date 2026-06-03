@@ -129,10 +129,11 @@ export function NodeChat({
       const decoder = new TextDecoder();
       let assistantContent = '';
       const toolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+      let streamDone = false;
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done || streamDone) break;
 
         const chunk = decoder.decode(value, { stream: true });
         const lines = chunk.split('\n');
@@ -169,6 +170,9 @@ export function NodeChat({
               }
             } else if (event.type === 'error') {
               assistantContent += `\n\n[Error: ${event.message}]`;
+            } else if (event.type === 'done') {
+              streamDone = true;
+              break;
             }
           } catch {
             // Skip malformed JSON
