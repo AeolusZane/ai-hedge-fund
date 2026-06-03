@@ -54,24 +54,23 @@ async def trigger_bug_fix(
     ).first()
 
     if not flow:
-        # Create a default flow
-        from app.backend.domains.bug_fix.index import bugFixTemplate
+        # Create a default flow with hardcoded template
         flow = HedgeFundFlow(
             name=f"Bug Fix - {project_key}",
             description=f"Auto-created flow for {project_key} bugs",
             domain="bug_fix",
             nodes=[
-                {
-                    "id": node["key"],
-                    "type": "bug-fix-stage-node" if node["key"] != "jira" else "jira-issue-input-node",
-                    "position": {"x": node["offsetX"], "y": node["offsetY"]},
-                    "data": {"componentName": node["componentName"]},
-                }
-                for node in bugFixTemplate["nodes"]
+                {"id": "jira", "type": "jira-issue-input-node", "position": {"x": 0, "y": 0}, "data": {"componentName": "Jira Issue Input"}},
+                {"id": "analyze", "type": "bug-fix-stage-node", "position": {"x": 320, "y": 0}, "data": {"componentName": "Analyze"}},
+                {"id": "patch", "type": "bug-fix-stage-node", "position": {"x": 640, "y": 0}, "data": {"componentName": "Patch"}},
+                {"id": "test", "type": "bug-fix-stage-node", "position": {"x": 960, "y": 0}, "data": {"componentName": "Test"}},
+                {"id": "open_pr", "type": "bug-fix-stage-node", "position": {"x": 1280, "y": 0}, "data": {"componentName": "Open PR"}},
             ],
             edges=[
-                {"id": f"{edge['source']}-{edge['target']}", "source": edge["source"], "target": edge["target"]}
-                for edge in bugFixTemplate["edges"]
+                {"id": "jira-analyze", "source": "jira", "target": "analyze"},
+                {"id": "analyze-patch", "source": "analyze", "target": "patch"},
+                {"id": "patch-test", "source": "patch", "target": "test"},
+                {"id": "test-open_pr", "source": "test", "target": "open_pr"},
             ],
         )
         db.add(flow)
