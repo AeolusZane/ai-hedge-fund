@@ -1,6 +1,5 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useFlowContext } from '@/contexts/flow-context';
 import { NodeChat } from '@/domains/bug-fix/node-chat';
 import { useNodeOutput } from '@/domains/bug-fix/node-output-store';
 import { useStepDetailTarget, closeStepDetail } from '@/domains/bug-fix/step-detail-context';
@@ -32,7 +31,6 @@ export function StepDetailPanel() {
   const target = useStepDetailTarget();
   const nodeOutput = useNodeOutput();
   const reactFlow = useReactFlow();
-  const { currentFlowId } = useFlowContext();
 
   if (!target) return null;
 
