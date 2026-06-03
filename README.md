@@ -1,157 +1,174 @@
-# AI Hedge Fund
+# AI Agent Platform
 
-This is a proof of concept for an AI-powered hedge fund.  The goal of this project is to explore the use of AI to make trading decisions.  This project is for **educational** purposes only and is not intended for real trading or investment.
+A self-evolving AI agent platform that learns from experience. Currently includes two domains: an AI-powered hedge fund for stock analysis, and a self-improving bug fix agent that gets better at fixing bugs over time.
 
-This system employs several agents working together:
+## Architecture
 
-1. Aswath Damodaran Agent - The Dean of Valuation, focuses on story, numbers, and disciplined valuation
-2. Ben Graham Agent - The godfather of value investing, only buys hidden gems with a margin of safety
-3. Bill Ackman Agent - An activist investor, takes bold positions and pushes for change
-4. Cathie Wood Agent - The queen of growth investing, believes in the power of innovation and disruption
-5. Charlie Munger Agent - Warren Buffett's partner, only buys wonderful businesses at fair prices
-6. Michael Burry Agent - The Big Short contrarian who hunts for deep value
-7. Mohnish Pabrai Agent - The Dhandho investor, who looks for doubles at low risk
-8. Nassim Taleb Agent - The Black Swan risk analyst, focuses on tail risk, antifragility, and asymmetric payoffs
-9. Peter Lynch Agent - Practical investor who seeks "ten-baggers" in everyday businesses
-10. Phil Fisher Agent - Meticulous growth investor who uses deep "scuttlebutt" research 
-11. Rakesh Jhunjhunwala Agent - The Big Bull of India
-12. Stanley Druckenmiller Agent - Macro legend who hunts for asymmetric opportunities with growth potential
-13. Warren Buffett Agent - The oracle of Omaha, seeks wonderful companies at a fair price
-14. Valuation Agent - Calculates the intrinsic value of a stock and generates trading signals
-15. Sentiment Agent - Analyzes market sentiment and generates trading signals
-16. Fundamentals Agent - Analyzes fundamental data and generates trading signals
-17. Technicals Agent - Analyzes technical indicators and generates trading signals
-18. Risk Manager - Calculates risk metrics and sets position limits
-19. Portfolio Manager - Makes final trading decisions and generates orders
-
-<img width="1042" alt="Screenshot 2025-03-22 at 6 19 07 PM" src="https://github.com/user-attachments/assets/cbae3dcf-b571-490d-b0ad-3f0f035ac0d4" />
-
-Note: the system does not actually make any trades.
-
-[![Twitter Follow](https://img.shields.io/twitter/follow/virattt?style=social)](https://twitter.com/virattt)
-
-## Disclaimer
-
-This project is for **educational and research purposes only**.
-
-- Not intended for real trading or investment
-- No investment advice or guarantees provided
-- Creator assumes no liability for financial losses
-- Consult a financial advisor for investment decisions
-- Past performance does not indicate future results
-
-By using this software, you agree to use it solely for learning purposes.
-
-## Table of Contents
-- [How to Install](#how-to-install)
-- [How to Run](#how-to-run)
-  - [⌨️ Command Line Interface](#️-command-line-interface)
-  - [🖥️ Web Application](#️-web-application)
-- [How to Contribute](#how-to-contribute)
-- [Feature Requests](#feature-requests)
-- [License](#license)
-
-## How to Install
-
-Before you can run the AI Hedge Fund, you'll need to install it and set up your API keys. These steps are common to both the full-stack web application and command line interface.
-
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/virattt/ai-hedge-fund.git
-cd ai-hedge-fund
+```
+ai-hedge-fund/
+├── src/                          # Hedge Fund Agents (CLI)
+│   ├── agents/                   # 19 investment agents (Buffett, Munger, etc.)
+│   ├── graph/                    # LangGraph workflow
+│   └── llm/                      # LLM integration
+├── app/
+│   ├── backend/                  # FastAPI backend
+│   │   ├── domains/
+│   │   │   └── bug_fix/          # Self-evolving bug fix agent
+│   │   │       ├── analyze_agent.py
+│   │   │       ├── patch_agent.py
+│   │   │       ├── test_agent.py
+│   │   │       ├── pr_agent.py
+│   │   │       ├── post_fix_agent.py
+│   │   │       ├── experience_store.py
+│   │   │       ├── code_understanding_store.py
+│   │   │       ├── pr_embedding/
+│   │   │       └── pr_sync.py
+│   │   ├── routes/               # API routes
+│   │   ├── database/             # SQLite + models
+│   │   └── main.py
+│   └── frontend/                 # React + Vite frontend
+│       └── src/
+│           ├── domains/bug-fix/  # Bug Fix Dashboard
+│           ├── components/       # Flow editor, panels, tabs
+│           └── App.tsx
+└── docs/
+    └── evaluation-plan.md        # Self-evolution evaluation methodology
 ```
 
-### 2. Set up API keys
+## Domains
 
-Create a `.env` file for your API keys:
+### 1. AI Hedge Fund
+
+19 specialized investment agents working together to analyze stocks and make trading decisions. Based on [virattt/ai-hedge-fund](https://github.com/virattt/ai-hedge-fund).
+
+**Agents:** Warren Buffett, Charlie Munger, Ben Graham, Cathie Wood, Michael Burry, Peter Lynch, Phil Fisher, Bill Ackman, Stanley Druckenmiller, Mohnish Pabrai, Nassim Taleb, Rakesh Jhunjhunwala, Aswath Damodaran, + Valuation / Sentiment / Fundamentals / Technicals / Risk Manager / Portfolio Manager.
+
 ```bash
-# Create .env file for your API keys (in the root directory)
-cp .env.example .env
+# CLI
+poetry run python src/main.py --ticker AAPL,MSFT,NVDA
+
+# Backtester
+poetry run python src/backtester.py --ticker AAPL
 ```
 
-Open and edit the `.env` file to add your API keys:
-```bash
-# For running LLMs hosted by openai (gpt-4o, gpt-4o-mini, etc.)
-OPENAI_API_KEY=your-openai-api-key
+> **Disclaimer:** For educational purposes only. Not real trading, not investment advice.
 
-# For getting financial data to power the hedge fund
-FINANCIAL_DATASETS_API_KEY=your-financial-datasets-api-key
+### 2. Bug Fix Agent (Self-Evolving)
+
+An autonomous agent that fetches bugs from Jira, analyzes code, generates patches, runs tests, and submits PRs. The key innovation: **it accumulates project knowledge over time and gets better at fixing bugs.**
+
+#### Self-Evolution Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Bug Fix Pipeline                       │
+│                                                          │
+│  Jira Bug → Analyze → Patch → Test → PR → Post-fix      │
+│               ↑                              │           │
+│               │         Knowledge Loop        │           │
+│               └──────────────────────────────┘           │
+│                                                          │
+│  Three Knowledge Layers:                                 │
+│  ├── ExperienceStore     — bug patterns & lessons        │
+│  ├── CodeUnderstanding   — file-level code summaries     │
+│  └── PR Embedding        — historical PR review comments │
+└─────────────────────────────────────────────────────────┘
 ```
 
-**Important**: You must set at least one LLM API key (e.g. `OPENAI_API_KEY`, `GROQ_API_KEY`, `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`) for the hedge fund to work. 
+**How it learns:**
 
-## How to Run
+| Phase | What happens | Knowledge gained |
+|-------|-------------|-----------------|
+| Analyze (Phase 1) | Search experiences + PR reviews | Knowledge Recall |
+| Analyze (Phase 2) | Read code, trace call chains | — |
+| Analyze (Phase 2.5) | Check code understanding cache | Cache hit / verify stale |
+| Patch (Phase 3) | Generate fix with historical context | — |
+| Test (Phase 4) | Run tests, iterate if failed | — |
+| Post-fix (Phase 5) | Extract lessons from the fix | New experience stored |
 
-### ⌨️ Command Line Interface
+**The flywheel:**
 
-You can run the AI Hedge Fund directly via terminal. This approach offers more granular control and is useful for automation, scripting, and integration purposes.
+```
+Fix bug → Store experience → Next bug search hits it → Better hypothesis → Faster fix
+```
 
-<img width="992" alt="Screenshot 2025-01-06 at 5 50 17 PM" src="https://github.com/user-attachments/assets/e8ca04bf-9989-4a7d-a8b4-34e04666663b" />
+#### Key Features
+
+- **6-phase pipeline:** Fetch → Analyze → Patch → Test → PR → Post-fix
+- **Knowledge accumulation:** Three-layer memory (experiences, code understanding, PR reviews)
+- **Stale detection:** Code understanding cache verifies freshness via git hash + LLM validation
+- **PR Review sync:** Nightly sync of Bitbucket PR review comments into searchable vector store
+- **Web dashboard:** Real-time pipeline visualization at `/bug-fix`
+- **Automated scheduling:** Cron-based daily bug fetching + PR sync
 
 #### Quick Start
 
-1. Install Poetry (if not already installed):
 ```bash
-curl -sSL https://install.python-poetry.org | python3 -
+# Fetch a bug and run the pipeline
+cd app/backend
+python -m domains.bug_fix.cli --jira-id PROJ-123
+
+# Sync PR reviews
+python -m domains.bug_fix.pr_sync --project AI --repo corevo --since 7d
+
+# Start the web dashboard
+cd app/frontend && npm run dev
+# Visit http://localhost:5173/bug-fix
 ```
 
-2. Install dependencies:
+## Setup
+
+### Prerequisites
+
+- Python 3.11+
+- Node.js 18+
+- Poetry
+
+### Backend
+
 ```bash
+cd ai-hedge-fund
 poetry install
+cp .env.example .env
+# Edit .env with your API keys
 ```
 
-#### Run the AI Hedge Fund
-```bash
-poetry run python src/main.py --ticker AAPL,MSFT,NVDA
-```
-
-You can also specify a `--ollama` flag to run the AI hedge fund using local LLMs.
+### Frontend
 
 ```bash
-poetry run python src/main.py --ticker AAPL,MSFT,NVDA --ollama
+cd app/frontend
+npm install
+npm run dev
 ```
 
-You can optionally specify the start and end dates to make decisions over a specific time period.
+### Environment Variables
 
 ```bash
-poetry run python src/main.py --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01
+# LLM (at least one required)
+OPENAI_API_KEY=...
+ANTHROPIC_API_KEY=...
+DEEPSEEK_API_KEY=...
+
+# Financial data (for hedge fund)
+FINANCIAL_DATASETS_API_KEY=...
 ```
 
-#### Run the Backtester
-```bash
-poetry run python src/backtester.py --ticker AAPL,MSFT,NVDA
-```
+## Evaluation
 
-**Example Output:**
-<img width="941" alt="Screenshot 2025-01-06 at 5 47 52 PM" src="https://github.com/user-attachments/assets/00e794ea-8628-44e6-9a84-8f8a31ad3b47" />
+See [docs/evaluation-plan.md](docs/evaluation-plan.md) for the quantitative evaluation methodology:
 
+- **A/B/C/D control groups:** Cold start → Novice → Experienced → Veteran
+- **Primary metrics:** First-fix rate, final-fix rate, iteration count
+- **Secondary metrics:** Hypothesis accuracy, false-change rate, regression rate
+- **Learning curve:** Tracking improvement over bug count
 
-Note: The `--ollama`, `--start-date`, and `--end-date` flags work for the backtester, as well!
+## Branches
 
-### 🖥️ Web Application
-
-The new way to run the AI Hedge Fund is through our web application that provides a user-friendly interface. This is recommended for users who prefer visual interfaces over command line tools.
-
-Please see detailed instructions on how to install and run the web application [here](https://github.com/virattt/ai-hedge-fund/tree/main/app).
-
-<img width="1721" alt="Screenshot 2025-06-28 at 6 41 03 PM" src="https://github.com/user-attachments/assets/b95ab696-c9f4-416c-9ad1-51feb1f5374b" />
-
-
-## How to Contribute
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-**Important**: Please keep your pull requests small and focused.  This will make it easier to review and merge.
-
-## Feature Requests
-
-If you have a feature request, please open an [issue](https://github.com/virattt/ai-hedge-fund/issues) and make sure it is tagged with `enhancement`.
+| Branch | Purpose |
+|--------|---------|
+| `feature/digital-worker` | Active development |
+| `baseline/self-evolving-v1` | Frozen baseline for A/B evaluation |
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT
