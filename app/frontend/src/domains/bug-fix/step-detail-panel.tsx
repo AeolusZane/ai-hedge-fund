@@ -434,6 +434,57 @@ export function StepDetailPanel() {
           </div>
         )}
 
+        {/* Anomalies */}
+        {result?.anomalies && result.anomalies.anomaly_count > 0 && (
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-2">
+              Anomalies Detected ({result.anomalies.anomaly_count})
+            </div>
+            <div className="space-y-2">
+              {result.anomalies.anomalies.map((anomaly: any, i: number) => (
+                <div
+                  key={i}
+                  className={cn(
+                    'rounded-md p-3 text-xs border',
+                    anomaly.severity === 'critical'
+                      ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800'
+                      : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
+                  )}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        'text-[10px]',
+                        anomaly.severity === 'critical'
+                          ? 'border-red-400 text-red-600'
+                          : 'border-amber-400 text-amber-600'
+                      )}
+                    >
+                      {anomaly.severity}
+                    </Badge>
+                    <span className="font-semibold text-[10px] uppercase">{anomaly.type}</span>
+                  </div>
+                  <div className={cn(
+                    'mb-1',
+                    anomaly.severity === 'critical' ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300'
+                  )}>
+                    {anomaly.message}
+                  </div>
+                  {anomaly.details && Object.keys(anomaly.details).length > 0 && (
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-[10px] text-muted-foreground">Details</summary>
+                      <pre className="mt-1 text-[10px] font-mono bg-background/50 rounded p-2 overflow-auto max-h-[100px]">
+                        {JSON.stringify(anomaly.details, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* No data yet */}
         {!stream && progressItems.length === 0 && !resultSlice && (
           <div className="text-center py-8 text-muted-foreground">
