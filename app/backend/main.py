@@ -11,7 +11,11 @@ load_dotenv()
 from app.backend.routes import api_router
 from app.backend.database.connection import engine
 from app.backend.database.models import Base
+from app.backend.database.agent_models import (  # noqa: F401
+    RegisteredAgent, AgentRun, AgentOutput, AgentConnection,
+)
 from app.backend.services.ollama_service import ollama_service
+from app.backend.services.agent_scheduler import agent_scheduler
 
 # Importing each domain's `pack` module triggers its executor registration.
 import app.backend.domains.bug_fix.pack  # noqa: F401
@@ -63,7 +67,7 @@ app.include_router(api_router)
 
 @app.on_event("startup")
 async def startup_event():
-    """Startup event to check Ollama availability."""
+    """Startup event to check Ollama availability and start agent scheduler."""
     try:
         logger.info("Checking Ollama availability...")
         status = await ollama_service.check_ollama_status()
@@ -85,3 +89,16 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Could not check Ollama status: {e}")
         logger.info("ℹ Ollama integration is available if you install it later")
+
+    # Start the agent scheduler
+    try:
+        await agent_scheduler.start()
+        logger.info("✓ Agent scheduler started")
+    except Exception as e:
+        logger.warning(f"Could not start agent scheduler: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Shutdown event to stop the agent scheduler."""
+    await agent_scheduler.stop()

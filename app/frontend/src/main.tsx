@@ -9,6 +9,7 @@ import { ThemeProvider } from './providers/theme-provider';
 // runtime acts as a single-domain app. The DomainProvider is still
 // present to keep contexts wired; the switcher UI has been removed.
 import './domains/bug-fix';
+import './domains/agent-platform';
 
 import './index.css';
 

@@ -59,6 +59,36 @@ const nodeTypeDefinitions: Record<string, NodeTypeDefinition> = {
     'Open PR',
     'Open a pull request and link it back to the Jira issue.'
   ),
+  'External Agent': {
+    createNode: (position) => ({
+      id: `external_agent_${generateUniqueIdSuffix()}`,
+      type: 'external-agent-node',
+      position,
+      data: {
+        agentId: 0,
+        agentName: 'New Agent',
+        endpoint: 'http://localhost:8001/run',
+        inputKeys: [],
+        outputKeys: [],
+        color: '#6366f1',
+      },
+    }),
+  },
+  'Register Agent': {
+    createNode: (position) => ({
+      id: `register_agent_${generateUniqueIdSuffix()}`,
+      type: 'external-agent-node',
+      position,
+      data: {
+        agentId: 0,
+        agentName: 'Register New Agent',
+        endpoint: '',
+        inputKeys: [],
+        outputKeys: [],
+        color: '#10b981',
+      },
+    }),
+  },
 };
 
 export async function getNodeTypeDefinition(componentName: string): Promise<NodeTypeDefinition | null> {
