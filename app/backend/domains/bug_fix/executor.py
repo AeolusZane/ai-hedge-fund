@@ -107,6 +107,80 @@ def _is_fork_url(url: str) -> bool:
     return bool(re.search(r"[/:]~[^/]+/", url))
 
 
+async def _extract_lesson(exp: Any) -> tuple[str, list[str]]:
+    """Use LLM to distill a reusable lesson from a bug fix experience.
+
+    Returns:
+        Tuple of (lesson_text, tags_list). Empty strings/list on failure.
+    """
+    import json as _json
+    import os
+    from src.llm.models import ModelProvider, get_model
+
+    provider_name = os.getenv("BUG_FIX_ANALYZE_PROVIDER", "Anthropic")
+    try:
+        provider = ModelProvider(provider_name)
+    except ValueError:
+        provider = ModelProvider.ANTHROPIC
+    model_name = os.getenv("BUG_FIX_ANALYZE_MODEL", "claude-sonnet-4-6")
+    llm = get_model(model_name, provider)
+
+    prompt = f"""You are a senior engineer reviewing a completed bug fix. Extract ONE reusable lesson.
+
+## Bug Fix Summary
+- **Issue**: {exp.issue_summary}
+- **Bug type**: {exp.bug_type}
+- **Root cause**: {exp.root_cause}
+- **Fix strategy**: {exp.patch_strategy}
+- **Files changed**: {', '.join(exp.files_changed) if exp.files_changed else '(not recorded)'}
+
+## Task
+Write ONE lesson that answers: "Next time you encounter a similar problem, what should you check first?"
+
+Rules:
+1. One sentence, max 80 words
+2. NO specific file names, variable names, or code — abstract to the pattern level
+3. Focus on the *root cause pattern*, not the fix details
+4. Give 2-4 short tags for future retrieval (e.g. "auth", "null-check", "concurrency")
+
+Output ONLY valid JSON (no markdown fences):
+{{"lesson": "your one-sentence lesson here", "tags": ["tag1", "tag2"]}}"""
+
+    try:
+        response = await llm.ainvoke(prompt)
+        content = getattr(response, "content", response)
+        text = content if isinstance(content, str) else str(content)
+
+        # Parse JSON from response
+        stripped = text.strip()
+        if stripped.startswith("```"):
+            import re
+            stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
+            stripped = re.sub(r"\s*```$", "", stripped)
+        try:
+            parsed = _json.loads(stripped)
+        except _json.JSONDecodeError:
+            import re
+            match = re.search(r"\{[^{}]*\}", stripped)
+            if match:
+                parsed = _json.loads(match.group())
+            else:
+                return "", []
+
+        lesson = parsed.get("lesson", "")
+        tags = parsed.get("tags", [])
+
+        if not lesson or len(lesson) > 500:
+            return "", []
+        if not isinstance(tags, list):
+            tags = []
+        tags = [str(t).strip() for t in tags if t][:6]
+
+        return lesson, tags
+    except Exception:
+        return "", []
+
+
 def _topological_order(
     nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -664,10 +738,24 @@ class BugFixExecutor(WorkflowExecutor):
                 exp = build_experience_from_state(state, gate_action=decision.action)
                 if decision.context:
                     exp.human_context = decision.context
+
+                # ── Lesson Extraction: LLM distills a reusable lesson ──
+                try:
+                    lesson, tags = await _extract_lesson(exp)
+                    exp.lesson = lesson
+                    exp.lesson_tags = tags
+                except Exception as le:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        f"Lesson extraction failed (non-fatal): {le}"
+                    )
+
                 exp_id = store.store(exp)
                 store.build_vectors()
                 done_payload["experience_stored"] = True
                 done_payload["experience_id"] = exp_id
+                done_payload["lesson"] = exp.lesson
+                done_payload["lesson_tags"] = exp.lesson_tags
                 # Emit a progress event so the frontend knows
                 context.emit(ProgressEvent(
                     node_id=node_id,
@@ -678,6 +766,8 @@ class BugFixExecutor(WorkflowExecutor):
                         "issue_key": exp.issue_key,
                         "bug_type": exp.bug_type,
                         "confidence": exp.confidence,
+                        "lesson": exp.lesson,
+                        "lesson_tags": exp.lesson_tags,
                     },
                 ))
             except Exception as e:

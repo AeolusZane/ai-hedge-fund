@@ -53,6 +53,11 @@ class Experience:
     gate_action: str = ""  # approved / modified / rejected
     human_context: str = ""
 
+    # Lesson (LLM-extracted reusable insight)
+    lesson: str = ""  # One-sentence reusable lesson
+    lesson_tags: list[str] = field(default_factory=list)  # Tags for retrieval
+    lesson_applied: int = 0  # How many times this lesson was matched to new bugs
+
     # Metadata
     components: list[str] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
@@ -72,7 +77,7 @@ class Experience:
         data = dict(row)
         # Parse JSON fields
         for key in ("affected_areas", "suggested_approach", "files_changed",
-                     "components", "labels", "token_usage"):
+                     "components", "labels", "token_usage", "lesson_tags"):
             if key in data and isinstance(data[key], str):
                 try:
                     data[key] = json.loads(data[key])
@@ -120,7 +125,10 @@ class ExperienceStore:
                     run_id TEXT NOT NULL DEFAULT '',
                     duration_seconds REAL NOT NULL DEFAULT 0.0,
                     token_usage TEXT NOT NULL DEFAULT '{}',
-                    search_text TEXT NOT NULL DEFAULT ''
+                    search_text TEXT NOT NULL DEFAULT '',
+                    lesson TEXT NOT NULL DEFAULT '',
+                    lesson_tags TEXT NOT NULL DEFAULT '[]',
+                    lesson_applied INTEGER NOT NULL DEFAULT 0
                 );
 
                 -- FTS5 virtual table for full-text similarity search
@@ -174,14 +182,30 @@ class ExperienceStore:
                     vector BLOB NOT NULL
                 );
             """)
+            # Add lesson columns to existing tables (backward compatible)
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN lesson TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN lesson_tags TEXT NOT NULL DEFAULT '[]'")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN lesson_applied INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+
             conn.commit()
         finally:
             conn.close()
 
     def store(self, exp: Experience) -> int:
         """Store a new experience. Returns the new row id."""
-        # Build search text for FTS
+        # Build search text for FTS — include lesson for better matching
         exp.search_text = " ".join([
+            exp.lesson,
+            " ".join(exp.lesson_tags),
             exp.issue_summary,
             exp.issue_description[:500],
             exp.root_cause,
@@ -202,8 +226,9 @@ class ExperienceStore:
                     affected_areas, suggested_approach, confidence,
                     patch_summary, files_changed, patch_strategy,
                     gate_action, human_context, components, labels,
-                    run_id, duration_seconds, token_usage, search_text
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    run_id, duration_seconds, token_usage, search_text,
+                    lesson, lesson_tags, lesson_applied
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     now, exp.issue_key, exp.issue_summary, exp.issue_description,
                     exp.bug_type, exp.root_cause, exp.root_cause_hypothesis,
@@ -214,6 +239,7 @@ class ExperienceStore:
                     json.dumps(exp.components), json.dumps(exp.labels),
                     exp.run_id, exp.duration_seconds, json.dumps(exp.token_usage),
                     exp.search_text,
+                    exp.lesson, json.dumps(exp.lesson_tags), exp.lesson_applied,
                 ),
             )
             conn.commit()
@@ -573,6 +599,89 @@ class ExperienceStore:
                 "avg_confidence": round(avg_confidence, 2),
                 "bug_types": {row["bug_type"]: row["cnt"] for row in bug_types if row["bug_type"]},
             }
+        finally:
+            conn.close()
+
+    def get_lessons(self, limit: int = 50, tag: str = "") -> list[Experience]:
+        """Get all experiences that have lessons, ordered by creation date."""
+        conn = self._connect()
+        try:
+            if tag:
+                rows = conn.execute(
+                    "SELECT * FROM experiences WHERE lesson != '' AND lesson_tags LIKE ? ORDER BY created_at DESC LIMIT ?",
+                    (f'%"{tag}"%', limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM experiences WHERE lesson != '' ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            return [Experience.from_row(r) for r in rows]
+        finally:
+            conn.close()
+
+    def get_growth_stats(self) -> dict[str, Any]:
+        """Get growth statistics: lesson counts, tag distribution, applied counts."""
+        conn = self._connect()
+        try:
+            # Total lessons
+            total_lessons = conn.execute(
+                "SELECT COUNT(*) as cnt FROM experiences WHERE lesson != ''"
+            ).fetchone()["cnt"]
+
+            # Total applied
+            total_applied = conn.execute(
+                "SELECT COALESCE(SUM(lesson_applied), 0) as total FROM experiences WHERE lesson != ''"
+            ).fetchone()["total"]
+
+            # Tag distribution — parse JSON arrays from all lessons
+            tag_counts: dict[str, int] = {}
+            rows = conn.execute(
+                "SELECT lesson_tags FROM experiences WHERE lesson != ''"
+            ).fetchall()
+            for row in rows:
+                try:
+                    tags = json.loads(row["lesson_tags"]) if isinstance(row["lesson_tags"], str) else []
+                    for t in tags:
+                        tag_counts[t] = tag_counts.get(t, 0) + 1
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            # Top lessons by applied count
+            top_lessons = conn.execute(
+                "SELECT id, lesson, lesson_tags, lesson_applied, issue_key, created_at "
+                "FROM experiences WHERE lesson != '' ORDER BY lesson_applied DESC LIMIT 10"
+            ).fetchall()
+
+            return {
+                "total_lessons": total_lessons,
+                "total_applied": total_applied,
+                "unique_tags": len(tag_counts),
+                "tag_distribution": dict(sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:20]),
+                "top_lessons": [
+                    {
+                        "id": r["id"],
+                        "lesson": r["lesson"],
+                        "tags": json.loads(r["lesson_tags"]) if isinstance(r["lesson_tags"], str) else [],
+                        "applied": r["lesson_applied"],
+                        "issue_key": r["issue_key"],
+                        "created_at": r["created_at"],
+                    }
+                    for r in top_lessons
+                ],
+            }
+        finally:
+            conn.close()
+
+    def increment_lesson_applied(self, exp_id: int) -> None:
+        """Increment the lesson_applied counter for an experience."""
+        conn = self._connect()
+        try:
+            conn.execute(
+                "UPDATE experiences SET lesson_applied = lesson_applied + 1 WHERE id = ?",
+                (exp_id,),
+            )
+            conn.commit()
         finally:
             conn.close()
 

@@ -167,6 +167,36 @@ async def delete_experience(exp_id: int):
     return {"deleted": True, "id": exp_id}
 
 
+@router.get("/lessons")
+async def list_lessons(
+    limit: int = Query(50, ge=1, le=200),
+    tag: str = Query("", description="Filter by tag"),
+):
+    """List all lessons (experiences with extracted lessons)."""
+    store = ExperienceStore()
+    lessons = store.get_lessons(limit=limit, tag=tag)
+    return [
+        {
+            "id": exp.id or 0,
+            "created_at": exp.created_at or "",
+            "issue_key": exp.issue_key,
+            "issue_summary": exp.issue_summary,
+            "lesson": exp.lesson,
+            "lesson_tags": exp.lesson_tags,
+            "lesson_applied": exp.lesson_applied,
+            "bug_type": exp.bug_type,
+        }
+        for exp in lessons
+    ]
+
+
+@router.get("/growth")
+async def get_growth_stats():
+    """Get growth statistics: lesson counts, tag distribution, applied counts."""
+    store = ExperienceStore()
+    return store.get_growth_stats()
+
+
 @router.post("/seed")
 async def seed_experiences():
     """Seed the experience store with example cases for demo purposes.

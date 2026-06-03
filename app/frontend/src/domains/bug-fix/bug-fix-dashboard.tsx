@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Bug, ExternalLink, History, Play, RefreshCw, CheckCircle2, XCircle, Clock, ChevronRight } from 'lucide-react';
+import { Bug, ExternalLink, History, Play, RefreshCw, CheckCircle2, XCircle, Clock, ChevronRight, Lightbulb, TrendingUp, Tag, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +24,25 @@ interface BugFixRun {
   stages_completed: string[];
 }
 
+interface Lesson {
+  id: number;
+  created_at: string;
+  issue_key: string;
+  issue_summary: string;
+  lesson: string;
+  lesson_tags: string[];
+  lesson_applied: number;
+  bug_type: string;
+}
+
+interface GrowthStats {
+  total_lessons: number;
+  total_applied: number;
+  unique_tags: number;
+  tag_distribution: Record<string, number>;
+  top_lessons: Lesson[];
+}
+
 const STAGES = ['Analyze', 'Patch', 'Test', 'Open PR'];
 
 const statusConfig: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
@@ -38,7 +57,10 @@ export function BugFixDashboard() {
   const [bugs, setBugs] = useState<JiraBug[]>([]);
   const [runs, setRuns] = useState<BugFixRun[]>([]);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<'active' | 'bugs' | 'history'>('active');
+  const [tab, setTab] = useState<'active' | 'bugs' | 'history' | 'growth'>('active');
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [growthStats, setGrowthStats] = useState<GrowthStats | null>(null);
+  const [tagFilter, setTagFilter] = useState('');
   const [triggering, setTriggering] = useState<string | null>(null);
 
   const fetchBugs = useCallback(async () => {
@@ -89,6 +111,31 @@ export function BugFixDashboard() {
     }
   };
 
+  const fetchLessons = useCallback(async () => {
+    try {
+      const params = tagFilter ? `?tag=${encodeURIComponent(tagFilter)}` : '';
+      const res = await fetch(`/api/v1/experiences/lessons${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        setLessons(data || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch lessons:', err);
+    }
+  }, [tagFilter]);
+
+  const fetchGrowth = useCallback(async () => {
+    try {
+      const res = await fetch('/api/v1/experiences/growth');
+      if (res.ok) {
+        const data = await res.json();
+        setGrowthStats(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch growth stats:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchBugs();
     fetchRuns();
@@ -98,6 +145,13 @@ export function BugFixDashboard() {
     const interval = setInterval(fetchRuns, 3000);
     return () => clearInterval(interval);
   }, [fetchRuns]);
+
+  useEffect(() => {
+    if (tab === 'growth') {
+      fetchLessons();
+      fetchGrowth();
+    }
+  }, [tab, fetchLessons, fetchGrowth]);
 
   const activeRuns = runs.filter(r => r.status === 'running' || r.status === 'in_progress' || r.status === 'idle');
   const completedRuns = runs.filter(r => r.status === 'complete' || r.status === 'error');
@@ -124,6 +178,7 @@ export function BugFixDashboard() {
             { key: 'active' as const, label: 'Active', count: activeRuns.length },
             { key: 'bugs' as const, label: 'Jira Bugs', count: bugs.length },
             { key: 'history' as const, label: 'Archive', count: completedRuns.length },
+            { key: 'growth' as const, label: 'Growth', count: lessons.length },
           ]).map(t => (
             <button
               key={t.key}
@@ -316,6 +371,111 @@ export function BugFixDashboard() {
               );
             })
           )
+        )}
+        {/* Growth — Lessons & Learning */}
+        {tab === 'growth' && (
+          <div className="space-y-4">
+            {/* Stats cards */}
+            {growthStats && (
+              <div className="grid grid-cols-3 gap-3">
+                <Card>
+                  <CardContent className="p-3 text-center">
+                    <Lightbulb className="h-5 w-5 mx-auto mb-1 text-amber-500" />
+                    <p className="text-2xl font-bold">{growthStats.total_lessons}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Lessons</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-3 text-center">
+                    <Zap className="h-5 w-5 mx-auto mb-1 text-green-500" />
+                    <p className="text-2xl font-bold">{growthStats.total_applied}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Applied</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-3 text-center">
+                    <Tag className="h-5 w-5 mx-auto mb-1 text-blue-500" />
+                    <p className="text-2xl font-bold">{growthStats.unique_tags}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Tags</p>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Tag cloud */}
+            {growthStats && Object.keys(growthStats.tag_distribution).length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => setTagFilter('')}
+                  className={`text-xs px-2 py-1 rounded-full transition-colors ${
+                    !tagFilter ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                  }`}
+                >
+                  All
+                </button>
+                {Object.entries(growthStats.tag_distribution)
+                  .sort(([, a], [, b]) => b - a)
+                  .slice(0, 15)
+                  .map(([tag, count]) => (
+                    <button
+                      key={tag}
+                      onClick={() => setTagFilter(tag === tagFilter ? '' : tag)}
+                      className={`text-xs px-2 py-1 rounded-full transition-colors ${
+                        tag === tagFilter
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                      }`}
+                    >
+                      {tag}
+                      <span className="ml-1 opacity-60">{count}</span>
+                    </button>
+                  ))}
+              </div>
+            )}
+
+            {/* Lessons timeline */}
+            {lessons.length === 0 ? (
+              <div className="text-center py-16 text-muted-foreground">
+                <TrendingUp className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                <p>No lessons yet</p>
+                <p className="text-sm mt-1">Lessons are extracted from completed bug fixes</p>
+              </div>
+            ) : (
+              lessons.map(lesson => (
+                <Card key={lesson.id} className="overflow-hidden">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Lightbulb className="h-4 w-4 text-amber-500 shrink-0" />
+                          <p className="text-sm font-medium leading-relaxed">{lesson.lesson}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {lesson.lesson_tags.map(tag => (
+                            <Badge key={tag} variant="secondary" className="text-[10px] px-1.5">
+                              {tag}
+                            </Badge>
+                          ))}
+                          <span className="text-[10px] text-muted-foreground">
+                            {lesson.issue_key}
+                          </span>
+                        </div>
+                      </div>
+                      {lesson.lesson_applied > 0 && (
+                        <div className="shrink-0 flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
+                          <Zap className="h-3 w-3" />
+                          {lesson.lesson_applied}
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-2">
+                      {new Date(lesson.created_at).toLocaleDateString()}
+                    </p>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
         )}
       </main>
     </div>

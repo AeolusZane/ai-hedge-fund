@@ -453,41 +453,44 @@ async def analyze_jira_issue(
 
     # ── Phase 0: Knowledge Recall ───────────────────────────────────
     # Query two knowledge sources:
-    #   1. experience_store — team's own bug fix history (TF-IDF vector + FTS5 fallback)
+    #   1. experience_store — team's accumulated lessons (TF-IDF vector + FTS5 fallback)
     #   2. pr_embedding — historical PR review records (TF-IDF vector similarity)
     experience_context = ""
     similar_cases: list[dict[str, Any]] = []
     pr_references: list[dict[str, Any]] = []
     query_text = f"{jira_detail.get('summary', '')} {jira_detail.get('description', '')[:300]}"
 
-    # Source 1: Experience Store (local SQLite + TF-IDF vector search)
+    # Source 1: Experience Store — search for lessons (not full cases)
     try:
         store = ExperienceStore()
         experiences = store.search_similar(query_text, limit=3, min_confidence=0.3)
-        if experiences:
-            case_texts = []
-            for i, exp in enumerate(experiences, 1):
-                case_texts.append(
-                    f"### Historical Case #{i}: {exp.issue_key}\n"
-                    f"- Bug type: {exp.bug_type}\n"
-                    f"- Root cause: {exp.root_cause}\n"
-                    f"- Fix strategy: {exp.patch_strategy or '(not recorded)'}\n"
-                    f"- Files changed: {', '.join(exp.files_changed) or '(not recorded)'}\n"
-                    f"- Confidence: {exp.confidence:.0%}\n"
+        # Filter to only those with lessons, and increment applied count
+        lessons = []
+        for exp in experiences:
+            if exp.lesson:
+                lessons.append(exp)
+                # Track that this lesson was applied to a new bug
+                store.increment_lesson_applied(exp.id or 0)
+        
+        if lessons:
+            lesson_texts = []
+            for i, exp in enumerate(lessons, 1):
+                tags_str = ", ".join(exp.lesson_tags) if exp.lesson_tags else "general"
+                lesson_texts.append(
+                    f"{i}. [{tags_str}] {exp.lesson} (from {exp.issue_key})"
                 )
                 similar_cases.append({
                     "id": exp.id,
                     "issue_key": exp.issue_key,
-                    "bug_type": exp.bug_type,
-                    "root_cause": exp.root_cause,
-                    "confidence": exp.confidence,
-                    "files_changed": exp.files_changed,
+                    "lesson": exp.lesson,
+                    "tags": exp.lesson_tags,
+                    "applied": exp.lesson_applied,
                 })
             experience_context += (
-                "## Historical Similar Cases (from team knowledge base)\n"
-                "The following cases were previously solved by the team. "
-                "Use them as reference — the current bug may share the same root cause.\n\n"
-                + "\n".join(case_texts) + "\n"
+                "## Historical Lessons (from team knowledge base)\n"
+                "The following are lessons the team learned from past bugs. "
+                "Check if the current bug might be a similar pattern:\n\n"
+                + "\n".join(lesson_texts) + "\n"
             )
     except Exception as e:
         import logging
@@ -523,11 +526,11 @@ async def analyze_jira_issue(
     total_knowledge = len(similar_cases) + len(pr_references)
     recall_step = {
         "step": "knowledge_recall",
-        "description": f"Found {len(similar_cases)} cases + {len(pr_references)} PR reviews" if total_knowledge else "No historical knowledge found",
+        "description": f"Found {len(similar_cases)} lessons + {len(pr_references)} PR reviews" if total_knowledge else "No historical knowledge found",
         "details": {
-            "experience_cases": len(similar_cases),
+            "lessons_matched": len(similar_cases),
             "pr_references": len(pr_references),
-            "cases": similar_cases,
+            "lessons": [{"id": c["id"], "issue_key": c["issue_key"], "tags": c["tags"]} for c in similar_cases],
             "pr_refs": [{"pr_id": r["pr_id"], "issue_type": r.get("issue_type", "")} for r in pr_references],
             "mode": "reuse" if total_knowledge else "generate",
         },
