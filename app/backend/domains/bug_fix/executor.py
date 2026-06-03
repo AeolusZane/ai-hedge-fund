@@ -330,6 +330,49 @@ class BugFixExecutor(WorkflowExecutor):
                 )
             )
 
+        # Forward structured decision steps to the SSE stream so the
+        # frontend can build a decision tree visualization.
+        async def on_decision_step(step: dict[str, Any]) -> None:
+            context.emit(
+                ProgressEvent(
+                    node_id=node_id,
+                    status="Analyzing root cause",
+                    payload={"decision_step": step},
+                )
+            )
+
+        # Clone repo early so Analyze can search the codebase.
+        # The repoUrl can be set on the Analyze node itself; if not,
+        # we fall back to Jira-only analysis (no code search).
+        repo_path = state.get("repo_path")  # may already exist from re-run
+        repo_url = str(node_data.get("repoUrl") or "").strip()
+        target_branch = str(node_data.get("targetBranch") or "main").strip()
+        if repo_url and not repo_path:
+            run_id = state.get("run_id")
+            if not run_id:
+                import time
+                run_id = int(time.time())
+                state["run_id"] = run_id
+            try:
+                repo_path_obj = await clone_repo(
+                    run_id=run_id,
+                    repo_url=repo_url,
+                    branch=target_branch,
+                    repo_name="repo",
+                )
+                repo_path = str(repo_path_obj)
+                state["repo_path"] = repo_path
+                state["pr_target_branch"] = target_branch
+            except Exception as e:
+                # Non-fatal: analysis continues without code search
+                context.emit(
+                    ProgressEvent(
+                        node_id=node_id,
+                        status="Analyzing root cause",
+                        payload={"warning": f"Repo clone failed: {e}. Continuing without code search."},
+                    )
+                )
+
         try:
             analysis = await analyze_jira_issue(
                 jira_detail,
@@ -337,6 +380,8 @@ class BugFixExecutor(WorkflowExecutor):
                 model_provider=node_data.get("modelProvider"),
                 api_keys=state.get("api_keys"),
                 on_token=on_token,
+                on_decision_step=on_decision_step,
+                repo_path=repo_path,
             )
         except AnalyzeConfigError as e:
             state["analyze_error"] = f"Analyze not configured: {e}"
@@ -348,6 +393,10 @@ class BugFixExecutor(WorkflowExecutor):
             return
         state["analysis"] = analysis
         done_payload["root_cause_hypothesis"] = analysis.get("root_cause_hypothesis")
+        # Forward token usage for cost tracking
+        if "_token_usage" in analysis:
+            done_payload["token_usage"] = analysis["_token_usage"]
+            state["analyze_token_usage"] = analysis["_token_usage"]
 
     async def _do_patch(
         self,

@@ -25,6 +25,7 @@ import {
   setRunPhase,
 } from './run-controller';
 import {
+  appendDecisionStep as storeAppendDecisionStep,
   appendProgress as storeAppendProgress,
   appendStreamChunk as storeAppendStreamChunk,
   resetNodeOutput as storeResetNodeOutput,
@@ -302,6 +303,12 @@ export function BugFixRunDialog({ open, onOpenChange }: DomainRunDialogProps) {
         if (data.agent) {
           updateAgentNode(flowKey, data.agent, 'IN_PROGRESS');
         }
+        return;
+      }
+      // Structured decision step — append to the agent's decision tree
+      // so the frontend can render a reasoning trace panel.
+      if (data.decision_step && data.agent) {
+        storeAppendDecisionStep(data.agent, data.decision_step);
         return;
       }
       setProgress((prev) => [

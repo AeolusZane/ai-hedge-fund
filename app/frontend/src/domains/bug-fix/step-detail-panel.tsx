@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DecisionTreePanel } from '@/domains/bug-fix/decision-tree-panel';
 import { NodeChat } from '@/domains/bug-fix/node-chat';
 import { useNodeOutput } from '@/domains/bug-fix/node-output-store';
 import { useStepDetailTarget, closeStepDetail } from '@/domains/bug-fix/step-detail-context';
@@ -39,6 +40,7 @@ export function StepDetailPanel() {
   const { agentId, stageName } = target;
   const stream = nodeOutput.streamingByAgent[agentId] ?? '';
   const progressItems = nodeOutput.progressByAgent[agentId] ?? [];
+  const decisionSteps = nodeOutput.decisionStepsByAgent[agentId] ?? [];
   const result = nodeOutput.result;
   const runId = nodeOutput.runId;
 
@@ -180,6 +182,16 @@ export function StepDetailPanel() {
               {stream}
               {status === 'IN_PROGRESS' && <span className="animate-pulse ml-1">▍</span>}
             </div>
+          </div>
+        )}
+
+        {/* Decision Tree — structured reasoning trace */}
+        {decisionSteps.length > 0 && (
+          <div>
+            <DecisionTreePanel
+              steps={decisionSteps}
+              running={status === 'IN_PROGRESS'}
+            />
           </div>
         )}
 

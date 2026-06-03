@@ -20,8 +20,8 @@ import { getStatusColor } from '../utils';
 import { NodeShell } from './node-shell';
 
 const STAGES_THAT_USE_AN_LLM = new Set(['Analyze']);
-const STAGES_THAT_NEED_REPO_URL = new Set(['Patch']);
-const STAGES_THAT_NEED_TARGET_BRANCH = new Set(['Patch']);
+const STAGES_THAT_NEED_REPO_URL = new Set(['Analyze', 'Patch']);
+const STAGES_THAT_NEED_TARGET_BRANCH = new Set(['Analyze', 'Patch']);
 const STAGES_THAT_NEED_PR_CONFIG = new Set(['Open PR']);
 
 /**

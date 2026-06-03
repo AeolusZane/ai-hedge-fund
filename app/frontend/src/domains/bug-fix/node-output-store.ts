@@ -21,11 +21,21 @@ export interface AgentProgressItem {
   ts: number;
 }
 
+export interface DecisionStep {
+  step: string;
+  description: string;
+  details: Record<string, any>;
+  confidence: number;
+  ts: number;
+}
+
 interface NodeOutputState {
   /** Per-agent live token buffer (streaming Analyze, etc.). */
   streamingByAgent: Record<string, string>;
   /** Per-agent progress timeline (non-streaming status updates). */
   progressByAgent: Record<string, AgentProgressItem[]>;
+  /** Per-agent decision steps (structured reasoning trace). */
+  decisionStepsByAgent: Record<string, DecisionStep[]>;
   /** Final result payload (only set after the `complete` event). */
   result: any;
   /** Mirrors the run dialog's phase so per-node dialogs can show a
@@ -38,6 +48,7 @@ interface NodeOutputState {
 const initial: NodeOutputState = {
   streamingByAgent: {},
   progressByAgent: {},
+  decisionStepsByAgent: {},
   result: null,
   phase: 'idle',
   runId: null,
@@ -134,6 +145,20 @@ export function appendProgress(agentId: string, status: string): void {
       [agentId]: [
         ...(state.progressByAgent[agentId] ?? []),
         { status, ts: Date.now() },
+      ],
+    },
+  };
+  emit();
+}
+
+export function appendDecisionStep(agentId: string, step: Omit<DecisionStep, 'ts'>): void {
+  state = {
+    ...state,
+    decisionStepsByAgent: {
+      ...state.decisionStepsByAgent,
+      [agentId]: [
+        ...(state.decisionStepsByAgent[agentId] ?? []),
+        { ...step, ts: Date.now() },
       ],
     },
   };

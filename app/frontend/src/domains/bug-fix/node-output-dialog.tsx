@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { DecisionTreePanel } from './decision-tree-panel';
 import { useNodeOutput } from './node-output-store';
 
 interface NodeOutputDialogProps {
@@ -32,16 +33,17 @@ export function NodeOutputDialog({
   agentId,
   stageName,
 }: NodeOutputDialogProps) {
-  const { streamingByAgent, progressByAgent, result, phase } = useNodeOutput();
+  const { streamingByAgent, progressByAgent, decisionStepsByAgent, result, phase } = useNodeOutput();
   const stream = streamingByAgent[agentId] ?? '';
   const progress = progressByAgent[agentId] ?? [];
+  const decisionSteps = decisionStepsByAgent[agentId] ?? [];
   const running = phase === 'running';
 
   // Each stage publishes its output under a known key on the run's
   // complete payload; pull the slice that belongs to this stage.
   const slice = sliceFor(stageName, result);
 
-  const empty = !stream && progress.length === 0 && !slice && !running;
+  const empty = !stream && progress.length === 0 && decisionSteps.length === 0 && !slice && !running;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -85,6 +87,12 @@ export function NodeOutputDialog({
               {stream || '(no streaming output for this stage)'}
               {running && <span className="animate-pulse">▍</span>}
             </pre>
+          </div>
+        )}
+
+        {decisionSteps.length > 0 && (
+          <div className="border rounded-md p-2 space-y-1">
+            <DecisionTreePanel steps={decisionSteps} running={running} />
           </div>
         )}
 
