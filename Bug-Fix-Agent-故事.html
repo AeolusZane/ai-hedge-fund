@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>它不只是修 Bug — Bug Fix Agent 故事</title>
+<link href="https://fonts.font.im/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════
+   Swiss Minimal Theme — CSS Variables
+   ═══════════════════════════════════════════ */
+:root {
+  --bg: #FAFAFA;
+  --bg-alt: #F0F0F0;
+  --text: #1A1A1A;
+  --text-secondary: #666666;
+  --text-muted: #999999;
+  --primary: #0038A8;       /* Klein Blue */
+  --primary-light: #E8EEFA;
+  --primary-dark: #002080;
+  --accent: #FF3D00;        /* Swiss Red */
+  --accent-light: #FFF0EC;
+  --success: #00875A;
+  --success-light: #E6F7EF;
+  --warning: #FF8B00;
+  --warning-light: #FFF5E6;
+  --border: #E0E0E0;
+  --card-bg: #FFFFFF;
+  --card-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+  --card-shadow-hover: 0 2px 8px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06);
+  --radius: 8px;
+  --radius-lg: 16px;
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+/* ═══════════════════════════════════════════
+   Reset & Base
+   ═══════════════════════════════════════════ */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ═══════════════════════════════════════════
+   Deck Background
+   ═══════════════════════════════════════════ */
+.deck-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: var(--bg);
+  pointer-events: none;
+}
+.deck-bg::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -30%;
+  width: 80vw;
+  height: 80vw;
+  background: radial-gradient(circle, rgba(0,56,168,0.03) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════
+   Navigation Dots
+   ═══════════════════════════════════════════ */
+.page-nav {
+  position: fixed;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.page-nav .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+  padding: 0;
+}
+.page-nav .dot.active {
+  background: var(--primary);
+  transform: scale(1.4);
+}
+.page-nav .dot:hover {
+  background: var(--primary);
+  opacity: 0.6;
+}
+
+/* ═══════════════════════════════════════════
+   Scroll Hint
+   ═══════════════════════════════════════════ */
+.scroll-hint {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.5;
+  transition: opacity 0.5s ease;
+}
+.scroll-hint.hidden { opacity: 0; pointer-events: none; }
+.scroll-hint-text {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.scroll-hint-arrow {
+  width: 16px;
+  height: 16px;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  transform: rotate(45deg);
+  animation: bounceArrow 1.5s ease-in-out infinite;
+}
+@keyframes bounceArrow {
+  0%, 100% { transform: rotate(45deg) translateY(0); }
+  50% { transform: rotate(45deg) translateY(4px); }
+}
+
+/* ═══════════════════════════════════════════
+   Deck Stage & Pages
+   ═══════════════════════════════════════════ */
+.deck-stage {
+  position: relative;
+  z-index: 1;
+}
+.page-section {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.page-inner {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: clamp(40px, 6vh, 80px) clamp(32px, 6vw, 100px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+/* ═══════════════════════════════════════════
+   Fade-in Animation
+   ═══════════════════════════════════════════ */
+.fade-in {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.fade-in.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ═══════════════════════════════════════════
+   Chrome (Page Header)
+   ═══════════════════════════════════════════ */
+.chrome {
+  position: absolute;
+  top: clamp(24px, 4vh, 48px);
+  left: clamp(32px, 6vw, 100px);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.foot {
+  position: absolute;
+  bottom: clamp(24px, 4vh, 48px);
+  right: clamp(32px, 6vw, 100px);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ═══════════════════════════════════════════
+   Typography
+   ═══════════════════════════════════════════ */
+.page-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 16px;
+}
+.page-title {
+  font-size: clamp(28px, 4vw, 48px);
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text);
+  margin-bottom: 16px;
+  letter-spacing: -0.02em;
+}
+.page-title-lg {
+  font-size: clamp(36px, 5.5vw, 72px);
+  font-weight: 900;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+}
+.page-subtitle {
+  font-size: clamp(16px, 2vw, 20px);
+  font-weight: 400;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 640px;
+}
+.page-body {
+  font-size: clamp(14px, 1.5vw, 16px);
+  color: var(--text-secondary);
+  line-height: 1.7;
+  max-width: 600px;
+}
+
+/* ═══════════════════════════════════════════
+   Components
+   ═══════════════════════════════════════════ */
+/* Cards */
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  box-shadow: var(--card-shadow);
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+.card:hover {
+  box-shadow: var(--card-shadow-hover);
+  transform: translateY(-2px);
+}
+.card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  margin-bottom: 14px;
+}
+.card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.card-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* Grid */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+
+/* Tags / Pills */
+.pill {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 100px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.pill-blue { background: var(--primary-light); color: var(--primary); }
+.pill-red { background: var(--accent-light); color: var(--accent); }
+.pill-green { background: var(--success-light); color: var(--success); }
+.pill-orange { background: var(--warning-light); color: var(--warning); }
+
+/* Stars */
+.stars { display: flex; gap: 4px; }
+.star { font-size: 20px; color: var(--border); }
+.star.filled { color: #FFB800; }
+
+/* Code block */
+.code-block {
+  background: #1E1E2E;
+  color: #CDD6F4;
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+.code-block .comment { color: #6C7086; }
+.code-block .keyword { color: #CBA6F7; }
+.code-block .string { color: #A6E3A1; }
+.code-block .func { color: #89B4FA; }
+.code-block .deleted { color: #F38BA8; text-decoration: line-through; opacity: 0.7; }
+.code-block .added { color: #A6E3A1; }
+
+/* Chat bubble */
+.chat-bubble {
+  padding: 16px 20px;
+  border-radius: var(--radius-lg);
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 420px;
+}
+.chat-human {
+  background: var(--primary);
+  color: white;
+  border-bottom-right-radius: 4px;
+  align-self: flex-end;
+}
+.chat-agent {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+  align-self: flex-start;
+}
+
+/* Flow step */
+.flow-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+.flow-num {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
+  font-size: 18px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.flow-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.flow-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 140px;
+}
+.flow-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--border);
+  font-size: 24px;
+  padding-top: 8px;
+}
+
+/* KPI */
+.kpi-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  text-align: center;
+}
+.kpi-value {
+  font-size: clamp(28px, 3.5vw, 42px);
+  font-weight: 800;
+  color: var(--primary);
+  letter-spacing: -0.02em;
+}
+.kpi-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  letter-spacing: 0.5px;
+}
+.kpi-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 8px;
+  padding: 3px 10px;
+  border-radius: 100px;
+}
+.kpi-trend.up { background: var(--success-light); color: var(--success); }
+.kpi-trend.down { background: var(--accent-light); color: var(--accent); }
+
+/* Comparison */
+.compare-side {
+  flex: 1;
+  padding: 28px;
+  border-radius: var(--radius-lg);
+}
+.compare-before {
+  background: #FFF5F5;
+  border: 1px solid #FECACA;
+}
+.compare-after {
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+}
+.compare-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+/* Flywheel */
+.flywheel {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  max-width: 700px;
+  margin: 0 auto;
+}
+.flywheel-node {
+  background: var(--card-bg);
+  border: 2px solid var(--primary);
+  border-radius: 100px;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  position: relative;
+}
+.flywheel-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--primary);
+  font-size: 20px;
+  opacity: 0.4;
+}
+
+/* Divider */
+.divider {
+  width: 48px;
+  height: 3px;
+  background: var(--primary);
+  border-radius: 2px;
+  margin: 20px 0;
+}
+
+/* Experience card */
+.exp-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--card-shadow);
+}
+.exp-card .exp-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.exp-card .exp-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 12px;
+  font-style: italic;
+  border-left: 3px solid var(--primary);
+  padding-left: 12px;
+}
+.exp-card .exp-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.exp-card .exp-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* Responsive */
+@media (max-width: 800px) {
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+  .page-nav { right: 12px; }
+  .page-nav .dot { width: 6px; height: 6px; }
+  .flow-row { flex-direction: column !important; }
+  .flow-arrow { transform: rotate(90deg); }
+  .compare-row { flex-direction: column !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ Background ═══ -->
+<div class="deck-bg"></div>
+
+<!-- ═══ Navigation Dots ═══ -->
+<nav class="page-nav" id="pageNav"></nav>
+
+<!-- ═══ Scroll Hint ═══ -->
+<div class="scroll-hint" id="scrollHint">
+  <div class="scroll-hint-text">SCROLL</div>
+  <div class="scroll-hint-arrow"></div>
+</div>
+
+<!-- ═══ Deck ═══ -->
+<main class="deck-stage">
+
+<!-- ═══════════════════════════════════════════
+     PAGE 1 — Cover
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p1">
+  <div class="page-inner fade-in" style="align-items:center;text-align:center;">
+    <div class="page-label" style="margin-bottom:24px;">Bug Fix Agent</div>
+    <h1 class="page-title page-title-lg" style="max-width:800px;">
+      它不只是修 Bug
+    </h1>
+    <div class="divider" style="margin:28px auto;"></div>
+    <p class="page-subtitle" style="text-align:center;max-width:520px;margin:0 auto;">
+      一个会学习、会成长、越用越聪明的<br>AI 工程师伙伴
+    </p>
+    <div style="margin-top:48px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+      <span class="pill pill-blue">自动分析</span>
+      <span class="pill pill-green">经验沉淀</span>
+      <span class="pill pill-orange">人机协作</span>
+      <span class="pill pill-red">持续进化</span>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PAGE 2 — Meet 小林
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p2">
+  <div class="page-inner fade-in">
+    <div class="chrome">02 / 14</div>
+    <div class="page-label">Chapter 01</div>
+    <h2 class="page-title">认识小林</h2>
+    <p class="page-body" style="margin-bottom:36px;">
+      小林是一个后端工程师。每天打开 Jira，等待他的是一长串 Bug 列表。<br>
+      NullPointer、连接泄漏、并发死锁……修完一个，又来三个。
+    </p>
+    <div class="grid-3">
+      <div class="card">
+        <div class="card-icon" style="background:var(--accent-light);">🐛</div>
+        <div class="card-title">Bug 修不完</div>
+        <div class="card-desc">每周新增 15+ 个 Bug， backlog 永远在涨。重复的问题反复出现，时间全花在"救火"上。</div>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background:var(--warning-light);">🔄</div>
+        <div class="card-title">重复踩坑</div>
+        <div class="card-desc">上个月修过的 NullPointer，这个月换了个模块又出现了。团队经验没有沉淀下来。</div>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background:var(--primary-light);">📝</div>
+        <div class="card-title">经验难传承</div>
+        <div class="card-desc">老员工离职后，那些"只有他知道"的排查技巧就消失了。新人只能从头摸索。</div>
+      </div>
+    </div>
+    <div class="foot">小林的一天</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PAGE 3 — First Encounter
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p3">
+  <div class="page-inner fade-in">
+    <div class="chrome">03 / 14</div>
+    <div class="page-label">Chapter 02</div>
+    <h2 class="page-title">「试试让 AI 来修？」</h2>
+    <p class="page-body" style="margin-bottom:36px;">
+      周一早上，Jira 上弹出一个新 Bug：用户登录时偶发 NullPointer。<br>
+      小林决定把它丢给 Bug Fix Agent 试试。
+    </p>
+    <div style="display:flex;flex-direction:column;gap:16px;max-width:600px;">
+      <div class="chat-bubble chat-human">
+        <div style="font-size:11px;font-weight:600;opacity:0.7;margin-bottom:6px;">小林</div>
+        JIRA-2847：用户登录时偶发 NullPointerException，堆栈指向 UserService.validateSession()
+      </div>
+      <div class="chat-bubble chat-agent">
+        <div style="font-size:11px;font-weight:600;color:var(--primary);margin-bottom:6px;">Agent</div>
+        收到。我来分析这个 Bug。<br><br>
+        <span style="color:var(--text-muted);">① 读取 Issue 详情和堆栈信息…</span><br>
+        <span style="color:var(--text-muted);">② 搜索代码库定位 validateSession()…</span><br>
+        <span style="color:var(--text-muted);">③ 分析根因并生成修复补丁…</span><br><br>
+        <strong style="color:var(--success);">修复方案已生成</strong>，PR 已提交，等待 Review。
+      </div>
+    </div>
+    <div class="foot">第一次对话</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PAGE 4 — How Agent Works
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p4">
+  <div class="page-inner fade-in">
+    <div class="chrome">04 / 14</div>
+    <div class="page-label">Workflow</div>
+    <h2 class="page-title">Agent 的工作流</h2>
+    <p class="page-body" style="margin-bottom:40px;">
+      从 Issue 到 PR，全自动。人只需要做一件事：Review 并告诉它好不好。
+    </p>
+    <div style="display:flex;align-items:flex-start;gap:0;justify-content:center;" class="flow-row">
+      <div class="flow-step">
+        <div class="flow-num">1</div>
+        <div class="flow-label">读取 Issue</div>
+        <div class="flow-desc">从 Jira 获取 Bug 描述、堆栈、复现步骤</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="flow-num">2</div>
+        <div class="flow-label">搜索 & 定位</div>
+        <div class="flow-desc">搜索代码库，定位根因文件和代码行</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="flow-num">3</div>
+        <div class="flow-label">生成修复</div>
+        <div class="flow-desc">编写补丁代码，生成 diff 和修复说明</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="flow-num">4</div>
+        <div class="flow-label">提交 PR</div>
+        <div class="flow-desc">提交 Pull Request，等待人类 Review</div>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:36px;">
+      <div class="pill pill-blue" style="font-size:13px;padding:8px 20px;">
+        全程无需人工干预 · 平均耗时 3 分钟
+      </div>
+    </div>
+    <div class="foot">自动化流程</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PAGE 5 — First Fix (Wrong)
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p5">
+  <div class="page-inner fade-in">
+    <div class="chrome">05 / 14</div>
+    <div class="page-label">Chapter 03</div>
+    <h2 class="page-title">第一次，它猜错了</h2>
+    <p class="page-body" style="margin-bottom:32px;">
+      Agent 找到了 NullPointer 的位置，但修复方式是「在调用处加 if 判空」。
+    </p>
+    <div class="grid-2" style="align-items:start;">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:12px;letter-spacing:1px;">AGENT 的修复</div>
+        <div class="code-block">
+<span class="comment">// UserService.java:142</span>
+<span class="keyword">public void</span> <span class="func">validateSession</span>(UserSession s) {
+  <span class="added">+ if (s != null && s.getToken() != null) {</span>
+  <span class="added">+   tokenStore.verify(s.getToken());</span>
+  <span class="added">+ }</span>
+}</div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:12px;letter-spacing:1px;">小林的评价</div>
+        <div class="card" style="border-left:3px solid var(--accent);">
+          <div class="card-title" style="color:var(--accent);">方向对了，但治标不治本</div>
+          <div class="card-desc">
+            根因不在调用处——是上游 <code style="background:var(--bg-alt);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:12px;">LoginController</code> 
+            没有传参数。应该在方法入口做参数校验，而不是在每个调用点加 if。
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">第一次 Review</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PAGE 6 — Human Feedback
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p6">
+  <div class="page-inner fade-in">
+    <div class="chrome">06 / 14</div>
+    <div class="page-label">Human in the Loop</div>
+    <h2 class="page-title">小林给了 2 星 + 一段反馈</h2>
+    <p class="page-body" style="margin-bottom:32px;">
+      在 Evolution Dashboard 上，小林对这次修复进行了评价。
+    </p>
+    <div class="card" style="max-width:560px;">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+        <div style="font-size:13px;font-weight:600;color:var(--text-secondary);">评分</div>
+        <div class="stars">
+          <span class="star filled">★</span>
+          <span class="star filled">★</span>
+          <span class="star">★</span>
+          <span class="star">★</span>
+          <span class="star">★</span>
+        </div>
+        <span style="font-size:13px;color:var(--text-muted);">2 / 5</span>
+      </div>
+      <div style="margin-bottom:20px;">
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">反馈</div>
+        <div style="background:var(--bg-alt);border-radius:var(--radius);padding:14px 16px;font-size:13px;color:var(--text);line-height:1.7;">
+          根因不在调用处，而在上游参数缺失。应该在方法入口做参数校验，而不是在每个调用点加 if。这种模式在项目中很常见，Agent 应该学会从根因层面修复。
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <span class="pill pill-orange" style="font-size:11px;">难度：中等</span>
+        <span class="pill pill-blue" style="font-size:11px;">类型：NullPointer</span>
+        <span class="pill pill-red" style="font-size:11px;">引导标签：参数校验</span>
+      </div>
+    </div>
+    <div style="margin-top:24px;font-size:13px;color:var(--text-muted);max-width:560px;">
+      💡 这段反馈会被 Agent 记住，影响它未来处理类似 Bug 的方式。
+    </div>
+    <div class="foot">Evolution Dashboard</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PAGE 7 — Experience Stored
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p7">
+  <div class="page-inner fade-in">
+    <div class="chrome">07 / 14</div>
+    <div class="page-label">Learning</div>
+    <h2 class="page-title">Agent 记住了</h2>
+    <p class="page-body" style="margin-bottom:32px;">
+      结合小林的反馈，Agent 提炼出一条可复用的经验。
+    </p>
+    <div class="exp-card" style="max-width:600px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div class="exp-title" style="margin-bottom:0;">经验 #001</div>
+        <span class="pill pill-green" style="font-size:11px;">已验证</span>
+      </div>
+      <div class="exp-text">
+        "当 NullPointer 出现在深层调用链时，优先检查方法入口的参数校验，而非在调用点逐个判空。这是「防御性编程」的核心原则——在边界处拦截异常。"
+      </div>
+      <div class="exp-tags">
+        <span class="exp-tag">null-check</span>
+        <span class="exp-tag">参数校验</span>
+        <span class="exp-tag">防御性编程</span>
+        <span class="exp-tag">边界拦截</span>
+      </div>
+      <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);">
+        来源：JIRA-2847 · 评分 2/5 → 经反馈改进 · 2026-06-01
+      </div>
+    </div>
+    <div style="margin-top:24px;display:flex;gap:12px;">
+      <div class="pill pill-blue">🧠 已存入知识库</div>
+      <div class="pill pill-green">📊 搜索权重 +30%</div>
+    </div>
+    <div class="foot">经验沉淀</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PAGE 8 — Second Time (Better!)
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p8">
+  <div class="page-inner fade-in">
+    <div class="chrome">08 / 14</div>
+    <div class="page-label">Chapter 04</div>
+    <h2 class="page-title">两周后，类似的 Bug 又来了</h2>
+    <p class="page-body" style="margin-bottom:32px;">
+      又一个 NullPointer，这次在订单模块。Agent 搜索经验库，找到了上次小林教它的那条。
+    </p>
+    <div style="display:flex;gap:20px;" class="compare-row">
+      <div class="compare-side compare-before">
+        <div class="compare-label" style="color:var(--accent);">✕ 第一次修复</div>
+        <div class="code-block" style="font-size:12px;margin-bottom:16px;">
+<span class="deleted">- tokenStore.verify(s.getToken());</span>
+<span class="added">+ if (s != null) {</span>
+<span class="added">+   tokenStore.verify(s.getToken());</span>
+<span class="added">+ }</span></div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="stars" style="font-size:14px;">
+            <span class="star filled">★</span><span class="star filled">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span>
+          </div>
+          <span style="font-size:12px;color:var(--text-muted);">治标不治本</span>
+        </div>
+      </div>
+      <div class="compare-side compare-after">
+        <div class="compare-label" style="color:var(--success);">✓ 第二次修复</div>
+        <div class="code-block" style="font-size:12px;margin-bottom:16px;">
+<span class="comment">// 在方法入口统一校验</span>
+<span class="added">+ @NonNull</span>
+<span class="keyword">public void</span> <span class="func">validateSession</span>(
+  <span class="added">+ @Valid UserSession session</span>
+) {
+  tokenStore.verify(session.getToken());
+}</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="stars" style="font-size:14px;">
+            <span class="star filled">★</span><span class="star filled">★</span><span class="star filled">★</span><span class="star filled">★</span><span class="star filled">★</span>
+          </div>
+          <span style="font-size:12px;color:var(--success);">从根因修复</span>
+        </div>
+      </div>
+    </div>
+    <div class="foot">学习的力量</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PAGE 9 — More Scenarios
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p9">
+  <div class="page-inner fade-in">
+    <div class="chrome">09 / 14</div>
+    <div class="page-label">Daily Scenarios</div>
+    <h2 class="page-title">不只是 NullPointer</h2>
+    <p class="page-body" style="margin-bottom:32px;">
+      每一次修复都是一次学习。Agent 在不同场景中积累经验。
+    </p>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-icon" style="background:var(--accent-light);">🔌</div>
+        <div class="card-title">数据库连接泄漏</div>
+        <div class="card-desc" style="margin-bottom:10px;">连接没有正确关闭，长时间运行后连接池耗尽。</div>
+        <div style="font-size:12px;color:var(--success);font-weight:600;">
+          ✦ 学到：使用 try-with-resources 自动关闭连接
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background:var(--warning-light);">🔒</div>
+        <div class="card-title">并发死锁</div>
+        <div class="card-desc" style="margin-bottom:10px;">两个线程以相反顺序获取锁，互相等待。</div>
+        <div style="font-size:12px;color:var(--success);font-weight:600;">
+          ✦ 学到：统一锁的获取顺序，使用超时机制
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background:var(--primary-light);">⏱️</div>
+        <div class="card-title">API 超时</div>
+        <div class="card-desc" style="margin-bottom:10px;">外部服务响应慢导致级联故障。</div>
+        <div style="font-size:12px;color:var(--success);font-weight:600;">
+          ✦ 学到：加重试 + 熔断 + 降级策略
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background:var(--success-light);">⚙️</div>
+        <div class="card-title">配置缺失</div>
+        <div class="card-desc" style="margin-bottom:10px;">新环境部署后缺少关键配置项，启动失败。</div>
+        <div style="font-size:12px;color:var(--success);font-weight:600;">
+          ✦ 学到：检查环境变量默认值和启动校验
+        </div>
+      </div>
+    </div>
+    <div class="foot">日常场景</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PAGE 10 — Knowledge Growing
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p10">
+  <div class="page-inner fade-in">
+    <div class="chrome">10 / 14</div>
+    <div class="page-label">Knowledge Base</div>
+    <h2 class="page-title">Agent 的知识库</h2>
+    <p class="page-body" style="margin-bottom:32px;">
+      经验库在持续增长。每一条经验都带有人类评分和反馈。
+    </p>
+    <div style="display:flex;gap:32px;align-items:flex-start;" class="compare-row">
+      <div style="flex:1;">
+        <!-- Growth chart (pure CSS) -->
+        <div class="card" style="padding:28px;">
+          <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:20px;letter-spacing:1px;">经验增长曲线</div>
+          <div style="display:flex;align-items:flex-end;gap:16px;height:160px;padding-bottom:8px;border-bottom:1px solid var(--border);">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;">
+              <div style="font-size:11px;font-weight:700;color:var(--primary);">5</div>
+              <div style="width:100%;background:var(--primary-light);border-radius:4px 4px 0 0;height:20px;"></div>
+              <div style="font-size:10px;color:var(--text-muted);">第1周</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;">
+              <div style="font-size:11px;font-weight:700;color:var(--primary);">12</div>
+              <div style="width:100%;background:var(--primary-light);border-radius:4px 4px 0 0;height:48px;"></div>
+              <div style="font-size:10px;color:var(--text-muted);">第2周</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;">
+              <div style="font-size:11px;font-weight:700;color:var(--primary);">23</div>
+              <div style="width:100%;background:var(--primary);border-radius:4px 4px 0 0;height:80px;opacity:0.7;"></div>
+              <div style="font-size:10px;color:var(--text-muted);">第4周</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;">
+              <div style="font-size:11px;font-weight:700;color:var(--primary);">41</div>
+              <div style="width:100%;background:var(--primary);border-radius:4px 4px 0 0;height:112px;opacity:0.85;"></div>
+              <div style="font-size:10px;color:var(--text-muted);">第8周</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;">
+              <div style="font-size:11px;font-weight:700;color:var(--primary);">67</div>
+              <div style="width:100%;background:var(--primary);border-radius:4px 4px 0 0;height:152px;"></div>
+              <div style="font-size:10px;color:var(--text-muted);">第12周</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:12px;">
+        <div class="exp-card">
+          <div class="exp-title">#042 · 并发安全</div>
+          <div class="exp-text">"共享可变状态必须通过同步机制保护，优先使用不可变对象。"</div>
+          <div style="display:flex;align-items:center;gap:8px;"><span class="stars" style="font-size:12px;"><span class="star filled">★</span><span class="star filled">★</span><span class="star filled">★</span><span class="star filled">★</span><span class="star filled">★</span></span><span style="font-size:11px;color:var(--text-muted);">5/5</span></div>
+        </div>
+        <div class="exp-card">
+          <div class="exp-title">#058 · 资源管理</div>
+          <div class="exp-text">"所有可关闭资源必须使用 try-with-resources，禁止手动 close()。"</div>
+          <div style="display:flex;align-items:center;gap:8px;"><span class="stars" style="font-size:12px;"><span class="star filled">★</span><span class="star filled">★</span><span class="star filled">★</span><span class="star filled">★</span><span class="star">★</span></span><span style="font-size:11px;color:var(--text-muted);">4/5</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">知识积累</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PAGE 11 — Health Score
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p11">
+  <div class="page-inner fade-in">
+    <div class="chrome">11 / 14</div>
+    <div class="page-label">Metrics</div>
+    <h2 class="page-title">它变聪明了多少？</h2>
+    <p class="page-body" style="margin-bottom:36px;">
+      四个维度量化 Agent 的成长。数据不说谎。
+    </p>
+    <div class="grid-4">
+      <div class="kpi-card">
+        <div class="kpi-value">72%</div>
+        <div class="kpi-label">首次修复成功率</div>
+        <div class="kpi-trend up">↑ 35% → 72%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">1.4</div>
+        <div class="kpi-label">平均迭代次数</div>
+        <div class="kpi-trend up">↓ 3.2 → 1.4</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">68%</div>
+        <div class="kpi-label">知识利用率</div>
+        <div class="kpi-trend up">↑ 0% → 68%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">4.3</div>
+        <div class="kpi-label">人类满意度</div>
+        <div class="kpi-trend up">↑ 2.1 → 4.3</div>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:28px;">
+      <div style="display:inline-flex;align-items:center;gap:8px;background:var(--success-light);padding:10px 24px;border-radius:100px;">
+        <span style="font-size:14px;">📈</span>
+        <span style="font-size:13px;font-weight:600;color:var(--success);">综合健康度 82 / 100 — 趋势向好</span>
+      </div>
+    </div>
+    <div class="foot">Evolution Metrics</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PAGE 12 — How Humans Guide
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p12">
+  <div class="page-inner fade-in">
+    <div class="chrome">12 / 14</div>
+    <div class="page-label">Human Guidance</div>
+    <h2 class="page-title">你不是在「用」它<br>你是在「教」它</h2>
+    <p class="page-body" style="margin-bottom:36px;">
+      三种方式引导 Agent 成长。每次互动都是一次教学。
+    </p>
+    <div class="grid-3">
+      <div class="card" style="border-top:3px solid #FFB800;">
+        <div style="font-size:28px;margin-bottom:12px;">⭐</div>
+        <div class="card-title">评分</div>
+        <div class="card-desc">
+          1-5 星打分，告诉 Agent 哪些修复好、哪些不好。<br><br>
+          <strong>高评分经验</strong>在搜索中权重 +30%，优先被引用。
+        </div>
+        <div style="margin-top:16px;">
+          <div class="stars" style="font-size:16px;">
+            <span class="star filled">★</span><span class="star filled">★</span><span class="star filled">★</span><span class="star filled">★</span><span class="star filled">★</span>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--primary);">
+        <div style="font-size:28px;margin-bottom:12px;">💬</div>
+        <div class="card-title">反馈</div>
+        <div class="card-desc">
+          用自然语言解释为什么不好、应该怎么做。<br><br>
+          Agent 下次提取 lesson 时会<strong>参考低评分反馈</strong>，避免重蹈覆辙。
+        </div>
+        <div style="margin-top:16px;font-size:12px;color:var(--text-muted);font-style:italic;border-left:2px solid var(--primary);padding-left:10px;">
+          "应该在入口校验，而不是逐个判空"
+        </div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--success);">
+        <div style="font-size:28px;margin-bottom:12px;">🏷️</div>
+        <div class="card-title">标注</div>
+        <div class="card-desc">
+          标记难度、分类、关联标签，帮助 Agent 建立更精确的知识索引。<br><br>
+          <strong>难度标注</strong>让 Agent 知道哪些 Bug 是简单的、哪些需要更多迭代。
+        </div>
+        <div style="margin-top:16px;display:flex;gap:6px;flex-wrap:wrap;">
+          <span class="pill pill-orange" style="font-size:10px;">困难</span>
+          <span class="pill pill-blue" style="font-size:10px;">并发</span>
+        </div>
+      </div>
+    </div>
+    <div class="foot">引导方式</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PAGE 13 — Flywheel
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p13">
+  <div class="page-inner fade-in" style="align-items:center;text-align:center;">
+    <div class="chrome">13 / 14</div>
+    <div class="page-label">The Flywheel</div>
+    <h2 class="page-title" style="text-align:center;">越用越聪明的飞轮</h2>
+    <p class="page-subtitle" style="text-align:center;margin:0 auto 40px;">
+      每一次修复、每一次评价，都在推动这个飞轮转动。
+    </p>
+    <div style="position:relative;max-width:600px;margin:0 auto;">
+      <!-- Flywheel circle -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;max-width:560px;margin:0 auto;">
+        <div style="text-align:center;">
+          <div style="width:56px;height:56px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 10px;">🐛</div>
+          <div style="font-size:13px;font-weight:600;">修 Bug</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Agent 自动分析修复</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="width:56px;height:56px;border-radius:50%;background:#FFB800;color:white;display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 10px;">⭐</div>
+          <div style="font-size:13px;font-weight:600;">人评价</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">打分 + 反馈 + 标注</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="width:56px;height:56px;border-radius:50%;background:var(--success);color:white;display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 10px;">🧠</div>
+          <div style="font-size:13px;font-weight:600;">Agent 学习</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">经验沉淀 + 知识更新</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="width:56px;height:56px;border-radius:50%;background:var(--primary-dark);color:white;display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 10px;">📈</div>
+          <div style="font-size:13px;font-weight:600;">修得更好</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">首次成功率提升</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="width:56px;height:56px;border-radius:50%;background:var(--accent);color:white;display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 10px;">🤝</div>
+          <div style="font-size:13px;font-weight:600;">人更信任</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">给更多 Bug 修</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="width:56px;height:56px;border-radius:50%;background:var(--warning);color:white;display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 10px;">📚</div>
+          <div style="font-size:13px;font-weight:600;">经验更丰富</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">知识库持续增长</div>
+        </div>
+      </div>
+      <!-- Circular arrows -->
+      <div style="margin-top:28px;font-size:13px;color:var(--primary);font-weight:600;letter-spacing:1px;">
+        ↻ 循环往复 · 持续进化
+      </div>
+    </div>
+    <div class="foot">增长飞轮</div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PAGE 14 — Closing
+     ═══════════════════════════════════════════ -->
+<section class="page-section" id="p14">
+  <div class="page-inner fade-in" style="align-items:center;text-align:center;">
+    <div class="page-label" style="margin-bottom:24px;">Closing</div>
+    <h2 class="page-title page-title-lg" style="max-width:700px;">
+      最好的 AI 伙伴<br>
+      <span style="color:var(--primary);">是你亲手教出来的</span>
+    </h2>
+    <div class="divider" style="margin:28px auto;"></div>
+    <p class="page-subtitle" style="text-align:center;max-width:480px;margin:0 auto;">
+      它不是开箱即用的完美工具，<br>
+      而是一个愿意学习、记住你的偏好、<br>
+      并随着你的引导不断成长的伙伴。
+    </p>
+    <div style="margin-top:48px;display:flex;gap:16px;justify-content:center;flex-wrap:wrap;">
+      <div class="pill pill-blue" style="padding:10px 24px;font-size:13px;">Bug Fix Agent</div>
+      <div class="pill pill-green" style="padding:10px 24px;font-size:13px;">Evolution Dashboard</div>
+    </div>
+    <div style="margin-top:64px;font-size:12px;color:var(--text-muted);">
+      Built with ❤️ · 2026
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ═══════════════════════════════════════════
+     Interaction Core JS
+     ═══════════════════════════════════════════ -->
+<script>
+(function() {
+  'use strict';
+
+  // ─── Page Setup ───
+  const sections = document.querySelectorAll('.page-section');
+  const pageNav = document.getElementById('pageNav');
+  const scrollHint = document.getElementById('scrollHint');
+  const totalPages = sections.length;
+  let currentPage = 0;
+  let isScrolling = false;
+  let scrollCooldown = false;
+
+  // Create nav dots
+  sections.forEach((_, i) => {
+    const dot = document.createElement('button');
+    dot.className = 'dot' + (i === 0 ? ' active' : '');
+    dot.setAttribute('aria-label', 'Page ' + (i + 1));
+    dot.addEventListener('click', () => goToPage(i));
+    pageNav.appendChild(dot);
+  });
+
+  // ─── Scroll to Page ───
+  function goToPage(index) {
+    if (index < 0 || index >= totalPages || scrollCooldown) return;
+    scrollCooldown = true;
+    currentPage = index;
+    sections[index].scrollIntoView({ behavior: 'smooth' });
+    updateNav();
+    setTimeout(() => { scrollCooldown = false; }, 1200);
+  }
+
+  function updateNav() {
+    const dots = pageNav.querySelectorAll('.dot');
+    dots.forEach((d, i) => d.classList.toggle('active', i === currentPage));
+    // Hide scroll hint after first page
+    if (currentPage > 0) {
+      scrollHint.classList.add('hidden');
+    } else {
+      scrollHint.classList.remove('hidden');
+    }
+  }
+
+  // ─── Wheel Handler ───
+  let accumulatedDelta = 0;
+  const SCROLL_THRESHOLD = 80;
+
+  window.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (scrollCooldown) return;
+
+    accumulatedDelta += e.deltaY;
+
+    if (Math.abs(accumulatedDelta) >= SCROLL_THRESHOLD) {
+      if (accumulatedDelta > 0 && currentPage < totalPages - 1) {
+        goToPage(currentPage + 1);
+      } else if (accumulatedDelta < 0 && currentPage > 0) {
+        goToPage(currentPage - 1);
+      }
+      accumulatedDelta = 0;
+    }
+
+    // Reset accumulated delta after a short delay
+    clearTimeout(window._wheelTimeout);
+    window._wheelTimeout = setTimeout(() => { accumulatedDelta = 0; }, 200);
+  }, { passive: false });
+
+  // ─── Touch Handler ───
+  let touchStartY = 0;
+  window.addEventListener('touchstart', (e) => {
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+
+  window.addEventListener('touchend', (e) => {
+    if (scrollCooldown) return;
+    const diff = touchStartY - e.changedTouches[0].clientY;
+    if (Math.abs(diff) > 50) {
+      if (diff > 0 && currentPage < totalPages - 1) {
+        goToPage(currentPage + 1);
+      } else if (diff < 0 && currentPage > 0) {
+        goToPage(currentPage - 1);
+      }
+    }
+  }, { passive: true });
+
+  // ─── Keyboard Handler ───
+  window.addEventListener('keydown', (e) => {
+    if (scrollCooldown) return;
+    if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+      e.preventDefault();
+      goToPage(currentPage + 1);
+    } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+      e.preventDefault();
+      goToPage(currentPage - 1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      goToPage(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      goToPage(totalPages - 1);
+    }
+  });
+
+  // ─── IntersectionObserver for fade-in + nav sync ───
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        // Fade in
+        const fadeEl = entry.target.querySelector('.fade-in');
+        if (fadeEl) {
+          fadeEl.classList.remove('pre');
+          fadeEl.classList.add('visible');
+        }
+        // Update nav
+        const idx = Array.from(sections).indexOf(entry.target);
+        if (idx !== -1) {
+          currentPage = idx;
+          updateNav();
+        }
+      }
+    });
+  }, { threshold: 0.5 });
+
+  sections.forEach(s => observer.observe(s));
+
+  // ─── Initial state ───
+  document.querySelector('.fade-in')?.classList.add('visible');
+})();
+</script>
+</body>
+</html>
