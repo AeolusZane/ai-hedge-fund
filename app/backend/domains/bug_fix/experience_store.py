@@ -68,6 +68,15 @@ class Experience:
     # Search text (auto-generated for FTS)
     search_text: str = ""
 
+    # Evolution tracking fields (added for Evolution Dashboard)
+    human_rating: Optional[int] = None  # 1-5 rating, NULL=unreviewed
+    human_feedback: str = ""  # Human evaluation comments
+    difficulty_level: str = ""  # L1/L2/L3/L4
+    knowledge_used: list[dict[str, Any]] = field(default_factory=list)  # [{id, score, lesson}]
+    reviewed_at: Optional[str] = None  # When human reviewed
+    first_fix_success: Optional[int] = None  # 0=failed, 1=success, NULL=unknown
+    iteration_count: int = 0  # Number of iterations to fix
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -77,12 +86,13 @@ class Experience:
         data = dict(row)
         # Parse JSON fields
         for key in ("affected_areas", "suggested_approach", "files_changed",
-                     "components", "labels", "token_usage", "lesson_tags"):
+                     "components", "labels", "token_usage", "lesson_tags",
+                     "knowledge_used"):
             if key in data and isinstance(data[key], str):
                 try:
                     data[key] = json.loads(data[key])
                 except (json.JSONDecodeError, TypeError):
-                    data[key] = [] if key != "token_usage" else {}
+                    data[key] = [] if key not in ("token_usage",) else {}
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
@@ -196,6 +206,68 @@ class ExperienceStore:
             except sqlite3.OperationalError:
                 pass
 
+            # Add evolution tracking columns (backward compatible)
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN human_rating INTEGER DEFAULT NULL")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN human_feedback TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN difficulty_level TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN knowledge_used TEXT NOT NULL DEFAULT '[]'")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN reviewed_at TEXT DEFAULT NULL")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN first_fix_success INTEGER DEFAULT NULL")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN iteration_count INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+
+            # Evolution metrics table — tracks per-run metrics over time
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS evolution_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    run_id TEXT NOT NULL DEFAULT '',
+                    experience_id INTEGER,
+
+                    -- Per-run metrics
+                    difficulty_level TEXT NOT NULL DEFAULT '',
+                    first_fix_success INTEGER DEFAULT NULL,
+                    iteration_count INTEGER NOT NULL DEFAULT 0,
+                    duration_seconds REAL NOT NULL DEFAULT 0,
+
+                    -- Knowledge utilization metrics
+                    knowledge_recalled INTEGER NOT NULL DEFAULT 0,
+                    knowledge_used INTEGER NOT NULL DEFAULT 0,
+                    code_cache_hit INTEGER NOT NULL DEFAULT 0,
+                    code_cache_miss INTEGER NOT NULL DEFAULT 0,
+
+                    -- Cumulative metrics (sliding window up to this run)
+                    cumulative_first_fix_rate REAL NOT NULL DEFAULT 0,
+                    cumulative_avg_iterations REAL NOT NULL DEFAULT 0,
+                    cumulative_knowledge_utilization REAL NOT NULL DEFAULT 0,
+
+                    -- Human feedback (synced from experiences table)
+                    human_rating INTEGER DEFAULT NULL,
+
+                    FOREIGN KEY (experience_id) REFERENCES experiences(id)
+                );
+            """)
+
             conn.commit()
         finally:
             conn.close()
@@ -227,8 +299,10 @@ class ExperienceStore:
                     patch_summary, files_changed, patch_strategy,
                     gate_action, human_context, components, labels,
                     run_id, duration_seconds, token_usage, search_text,
-                    lesson, lesson_tags, lesson_applied
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    lesson, lesson_tags, lesson_applied,
+                    human_rating, human_feedback, difficulty_level,
+                    knowledge_used, reviewed_at, first_fix_success, iteration_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     now, exp.issue_key, exp.issue_summary, exp.issue_description,
                     exp.bug_type, exp.root_cause, exp.root_cause_hypothesis,
@@ -240,6 +314,9 @@ class ExperienceStore:
                     exp.run_id, exp.duration_seconds, json.dumps(exp.token_usage),
                     exp.search_text,
                     exp.lesson, json.dumps(exp.lesson_tags), exp.lesson_applied,
+                    exp.human_rating, exp.human_feedback, exp.difficulty_level,
+                    json.dumps(exp.knowledge_used), exp.reviewed_at,
+                    exp.first_fix_success, exp.iteration_count,
                 ),
             )
             conn.commit()
@@ -437,11 +514,23 @@ class ExperienceStore:
             
             rows = conn.execute(sql, params).fetchall()
             
-            # Sort by vector score
+            # Sort by vector score with human rating boost
             id_score = {exp_id: score for exp_id, score in scored}
             results = [Experience.from_row(r) for r in rows]
-            results.sort(key=lambda e: id_score.get(e.id, 0), reverse=True)
-            
+
+            def _rating_boost(exp: Experience) -> float:
+                """Boost or penalize score based on human rating."""
+                base = id_score.get(exp.id, 0)
+                if exp.human_rating is None:
+                    return base
+                if exp.human_rating >= 4:
+                    return base * 1.3  # High-rated experiences rank higher
+                if exp.human_rating <= 2:
+                    return base * 0.7  # Low-rated experiences rank lower
+                return base  # Rating 3 = neutral
+
+            results.sort(key=_rating_boost, reverse=True)
+
             return results[:limit]
         except Exception as e:
             logger.debug(f"Vector search failed: {e}")
@@ -484,10 +573,19 @@ class ExperienceStore:
                 params.append(bug_type)
 
             sql += " ORDER BY rank LIMIT ?"
-            params.append(limit)
+            params.append(limit * 2)  # Fetch more to re-rank with rating boost
 
             rows = conn.execute(sql, params).fetchall()
-            return [Experience.from_row(r) for r in rows]
+            results = [Experience.from_row(r) for r in rows]
+
+            # Re-rank with human rating boost
+            def _fts_rating_boost(exp: Experience) -> float:
+                if exp.human_rating is None:
+                    return 0.5
+                return exp.human_rating / 5.0  # Normalize to 0-1
+
+            results.sort(key=_fts_rating_boost, reverse=True)
+            return results[:limit]
         except Exception as e:
             logger.warning(f"FTS search failed: {e}")
             return []
@@ -685,6 +783,380 @@ class ExperienceStore:
         finally:
             conn.close()
 
+    # ─── Evolution tracking methods ──────────────────────────────────
+
+    def submit_feedback(
+        self,
+        exp_id: int,
+        rating: int,
+        feedback: str,
+        difficulty: str = "",
+    ) -> bool:
+        """Submit human feedback for an experience."""
+        now = datetime.now(timezone.utc).isoformat()
+        conn = self._connect()
+        try:
+            cursor = conn.execute(
+                """UPDATE experiences
+                   SET human_rating = ?, human_feedback = ?, difficulty_level = ?, reviewed_at = ?
+                   WHERE id = ?""",
+                (rating, feedback, difficulty, now, exp_id),
+            )
+            conn.commit()
+            if cursor.rowcount > 0:
+                # Also update evolution_metrics if a record exists
+                conn.execute(
+                    "UPDATE evolution_metrics SET human_rating = ? WHERE experience_id = ?",
+                    (rating, exp_id),
+                )
+                conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    def update_experience(self, exp_id: int, updates: dict[str, Any]) -> bool:
+        """Update specific fields of an experience."""
+        if not updates:
+            return False
+        allowed = {"lesson", "lesson_tags", "difficulty_level", "human_feedback",
+                    "human_rating", "bug_type", "patch_summary", "patch_strategy"}
+        safe_updates = {k: v for k, v in updates.items() if k in allowed}
+        if not safe_updates:
+            return False
+
+        # Serialize list/dict fields
+        for k in ("lesson_tags",):
+            if k in safe_updates and isinstance(safe_updates[k], list):
+                safe_updates[k] = json.dumps(safe_updates[k])
+
+        set_clause = ", ".join(f"{k} = ?" for k in safe_updates)
+        values = list(safe_updates.values()) + [exp_id]
+
+        conn = self._connect()
+        try:
+            cursor = conn.execute(
+                f"UPDATE experiences SET {set_clause} WHERE id = ?", values
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    def list_experiences(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        tag: str = "",
+        difficulty: str = "",
+        min_rating: Optional[int] = None,
+        reviewed_only: bool = False,
+        search: str = "",
+    ) -> tuple[list[Experience], int]:
+        """List experiences with filtering and pagination. Returns (items, total_count)."""
+        conn = self._connect()
+        try:
+            where_parts = ["1=1"]
+            params: list[Any] = []
+
+            if tag:
+                where_parts.append("lesson_tags LIKE ?")
+                params.append(f'%"{tag}"%')
+            if difficulty:
+                where_parts.append("difficulty_level = ?")
+                params.append(difficulty)
+            if min_rating is not None:
+                where_parts.append("human_rating >= ?")
+                params.append(min_rating)
+            if reviewed_only:
+                where_parts.append("human_rating IS NOT NULL")
+            if search:
+                where_parts.append(
+                    "(issue_summary LIKE ? OR issue_key LIKE ? OR lesson LIKE ?)"
+                )
+                pattern = f"%{search[:100]}%"
+                params.extend([pattern, pattern, pattern])
+
+            where = " AND ".join(where_parts)
+
+            total = conn.execute(
+                f"SELECT COUNT(*) as cnt FROM experiences WHERE {where}", params
+            ).fetchone()["cnt"]
+
+            rows = conn.execute(
+                f"SELECT * FROM experiences WHERE {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                params + [limit, offset],
+            ).fetchall()
+
+            return [Experience.from_row(r) for r in rows], total
+        finally:
+            conn.close()
+
+    def record_metrics(self, metrics: dict[str, Any]) -> int:
+        """Record evolution metrics for a run. Returns the new row id."""
+        conn = self._connect()
+        try:
+            cursor = conn.execute(
+                """INSERT INTO evolution_metrics (
+                    run_id, experience_id, difficulty_level,
+                    first_fix_success, iteration_count, duration_seconds,
+                    knowledge_recalled, knowledge_used,
+                    code_cache_hit, code_cache_miss,
+                    cumulative_first_fix_rate, cumulative_avg_iterations,
+                    cumulative_knowledge_utilization
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    metrics.get("run_id", ""),
+                    metrics.get("experience_id"),
+                    metrics.get("difficulty_level", ""),
+                    metrics.get("first_fix_success"),
+                    metrics.get("iteration_count", 0),
+                    metrics.get("duration_seconds", 0),
+                    metrics.get("knowledge_recalled", 0),
+                    metrics.get("knowledge_used", 0),
+                    metrics.get("code_cache_hit", 0),
+                    metrics.get("code_cache_miss", 0),
+                    metrics.get("cumulative_first_fix_rate", 0),
+                    metrics.get("cumulative_avg_iterations", 0),
+                    metrics.get("cumulative_knowledge_utilization", 0),
+                ),
+            )
+            conn.commit()
+            return cursor.lastrowid or 0
+        finally:
+            conn.close()
+
+    def get_metrics_timeline(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Get evolution metrics over time for charting."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """SELECT m.*, e.issue_key, e.issue_summary, e.lesson
+                   FROM evolution_metrics m
+                   LEFT JOIN experiences e ON m.experience_id = e.id
+                   ORDER BY m.created_at ASC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def get_metrics_summary(self) -> dict[str, Any]:
+        """Get aggregated metrics summary by difficulty level."""
+        conn = self._connect()
+        try:
+            # Overall stats
+            total_runs = conn.execute(
+                "SELECT COUNT(*) as cnt FROM evolution_metrics"
+            ).fetchone()["cnt"]
+
+            if total_runs == 0:
+                return {
+                    "total_runs": 0,
+                    "by_difficulty": {},
+                    "overall_first_fix_rate": 0,
+                    "overall_avg_iterations": 0,
+                    "overall_knowledge_utilization": 0,
+                    "trend": "no_data",
+                }
+
+            # Per-difficulty breakdown
+            by_diff = {}
+            for level in ("L1", "L2", "L3", "L4"):
+                row = conn.execute(
+                    """SELECT
+                         COUNT(*) as cnt,
+                         AVG(CASE WHEN first_fix_success IS NOT NULL
+                              THEN first_fix_success ELSE NULL END) as fix_rate,
+                         AVG(iteration_count) as avg_iter
+                       FROM evolution_metrics WHERE difficulty_level = ?""",
+                    (level,),
+                ).fetchone()
+                cnt = row["cnt"]
+                if cnt > 0:
+                    by_diff[level] = {
+                        "count": cnt,
+                        "first_fix_rate": round((row["fix_rate"] or 0) * 100, 1),
+                        "avg_iterations": round(row["avg_iter"] or 0, 1),
+                    }
+
+            # Overall averages
+            overall = conn.execute(
+                """SELECT
+                     AVG(CASE WHEN first_fix_success IS NOT NULL
+                          THEN first_fix_success ELSE NULL END) as fix_rate,
+                     AVG(iteration_count) as avg_iter,
+                     AVG(CASE WHEN knowledge_recalled > 0
+                          THEN CAST(knowledge_used AS REAL) / knowledge_recalled
+                          ELSE NULL END) as knowledge_util
+                   FROM evolution_metrics"""
+            ).fetchone()
+
+            # Trend: compare last 10 vs previous 10
+            recent = conn.execute(
+                """SELECT AVG(CASE WHEN first_fix_success IS NOT NULL
+                              THEN first_fix_success ELSE NULL END) as fix_rate
+                   FROM (SELECT * FROM evolution_metrics
+                         ORDER BY created_at DESC LIMIT 10)"""
+            ).fetchone()
+            earlier = conn.execute(
+                """SELECT AVG(CASE WHEN first_fix_success IS NOT NULL
+                              THEN first_fix_success ELSE NULL END) as fix_rate
+                   FROM (SELECT * FROM evolution_metrics
+                         ORDER BY created_at DESC LIMIT 20 OFFSET 10)"""
+            ).fetchone()
+
+            recent_rate = recent["fix_rate"] if recent["fix_rate"] is not None else 0
+            earlier_rate = earlier["fix_rate"] if earlier["fix_rate"] is not None else 0
+            if earlier_rate == 0 and recent_rate == 0:
+                trend = "no_data"
+            elif recent_rate > earlier_rate + 0.05:
+                trend = "improving"
+            elif recent_rate < earlier_rate - 0.05:
+                trend = "declining"
+            else:
+                trend = "stable"
+
+            return {
+                "total_runs": total_runs,
+                "by_difficulty": by_diff,
+                "overall_first_fix_rate": round((overall["fix_rate"] or 0) * 100, 1),
+                "overall_avg_iterations": round(overall["avg_iter"] or 0, 1),
+                "overall_knowledge_utilization": round((overall["knowledge_util"] or 0) * 100, 1),
+                "trend": trend,
+            }
+        finally:
+            conn.close()
+
+    def get_health_score(self) -> dict[str, Any]:
+        """Compute a composite health score (0-100) across 4 dimensions."""
+        conn = self._connect()
+        try:
+            total_runs = conn.execute(
+                "SELECT COUNT(*) as cnt FROM evolution_metrics"
+            ).fetchone()["cnt"]
+
+            if total_runs < 3:
+                return {
+                    "score": 0,
+                    "dimensions": {
+                        "learning_speed": {"score": 0, "trend": "no_data"},
+                        "knowledge_utilization": {"score": 0, "trend": "no_data"},
+                        "fix_quality": {"score": 0, "trend": "no_data"},
+                        "knowledge_quality": {"score": 0, "trend": "no_data"},
+                    },
+                    "suggestions": ["Need at least 3 runs to compute health score."],
+                }
+
+            # Dimension 1: Learning speed (is first_fix_rate improving?)
+            recent_fix = conn.execute(
+                """SELECT AVG(CASE WHEN first_fix_success IS NOT NULL
+                              THEN first_fix_success ELSE NULL END) as rate
+                   FROM (SELECT * FROM evolution_metrics
+                         ORDER BY created_at DESC LIMIT 10)"""
+            ).fetchone()["rate"] or 0
+            earlier_fix = conn.execute(
+                """SELECT AVG(CASE WHEN first_fix_success IS NOT NULL
+                              THEN first_fix_success ELSE NULL END) as rate
+                   FROM (SELECT * FROM evolution_metrics
+                         ORDER BY created_at DESC LIMIT 20 OFFSET 10)"""
+            ).fetchone()["rate"] or 0
+
+            learning_score = min(100, int(recent_fix * 100 * 1.2))
+            learning_trend = "improving" if recent_fix > earlier_fix + 0.05 else (
+                "declining" if recent_fix < earlier_fix - 0.05 else "stable"
+            )
+
+            # Dimension 2: Knowledge utilization
+            knowledge_util = conn.execute(
+                """SELECT AVG(CASE WHEN knowledge_recalled > 0
+                              THEN CAST(knowledge_used AS REAL) / knowledge_recalled
+                              ELSE 0 END) as util
+                   FROM (SELECT * FROM evolution_metrics
+                         ORDER BY created_at DESC LIMIT 20)"""
+            ).fetchone()["util"] or 0
+            knowledge_score = min(100, int(knowledge_util * 100 * 1.5))
+            knowledge_trend = "improving" if knowledge_score > 50 else "stable"
+
+            # Dimension 3: Fix quality (avg rating of reviewed experiences)
+            avg_rating = conn.execute(
+                "SELECT AVG(human_rating) as avg_r FROM experiences WHERE human_rating IS NOT NULL"
+            ).fetchone()["avg_r"] or 0
+            quality_score = min(100, int(avg_rating * 20))  # 5 -> 100
+            quality_trend = "stable"
+
+            # Dimension 4: Knowledge quality (dedup ratio + coverage)
+            total_exp = conn.execute(
+                "SELECT COUNT(*) as cnt FROM experiences WHERE lesson != ''"
+            ).fetchone()["cnt"]
+            reviewed_exp = conn.execute(
+                "SELECT COUNT(*) as cnt FROM experiences WHERE human_rating IS NOT NULL AND lesson != ''"
+            ).fetchone()["cnt"]
+            review_ratio = reviewed_exp / max(total_exp, 1)
+
+            # Check for lesson diversity (unique tag count)
+            all_tags: set[str] = set()
+            tag_rows = conn.execute(
+                "SELECT lesson_tags FROM experiences WHERE lesson != ''"
+            ).fetchall()
+            for row in tag_rows:
+                try:
+                    tags = json.loads(row["lesson_tags"]) if isinstance(row["lesson_tags"], str) else []
+                    all_tags.update(tags)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            kq_score = min(100, int(
+                review_ratio * 40 +  # 40% weight on review coverage
+                min(len(all_tags), 20) * 3  # 60% weight on tag diversity (max 20 tags)
+            ))
+            kq_trend = "improving" if review_ratio > 0.5 else "stable"
+
+            # Composite score (weighted average)
+            composite = int(
+                learning_score * 0.30 +
+                knowledge_score * 0.25 +
+                quality_score * 0.25 +
+                kq_score * 0.20
+            )
+
+            # Generate suggestions
+            suggestions = []
+            if learning_trend == "stable" and total_runs > 10:
+                suggestions.append("Learning speed has plateaued. Consider adding more diverse experiences.")
+            if knowledge_score < 40:
+                suggestions.append("Knowledge utilization is low. Check if analyze_agent is actually referencing recalled experiences.")
+            if quality_score < 60 and reviewed_exp > 0:
+                suggestions.append("Fix quality ratings are below average. Review low-rated experiences for common failure patterns.")
+
+            # Check difficulty gaps
+            for level in ("L3", "L4"):
+                row = conn.execute(
+                    """SELECT AVG(CASE WHEN first_fix_success IS NOT NULL
+                                  THEN first_fix_success ELSE NULL END) as rate
+                       FROM evolution_metrics WHERE difficulty_level = ?""",
+                    (level,),
+                ).fetchone()
+                rate = row["rate"] if row["rate"] is not None else 0
+                if rate < 0.3 and total_runs > 5:
+                    suggestions.append(
+                        f"{level} difficulty fix rate is {round(rate*100)}%. "
+                        f"Consider adding cross-file/business-logic experiences."
+                    )
+
+            return {
+                "score": composite,
+                "dimensions": {
+                    "learning_speed": {"score": learning_score, "trend": learning_trend},
+                    "knowledge_utilization": {"score": knowledge_score, "trend": knowledge_trend},
+                    "fix_quality": {"score": quality_score, "trend": quality_trend},
+                    "knowledge_quality": {"score": kq_score, "trend": kq_trend},
+                },
+                "suggestions": suggestions,
+            }
+        finally:
+            conn.close()
+
 
 # ─── Helper: build Experience from executor state ────────────────────
 
@@ -746,6 +1218,11 @@ def build_experience_from_state(state: dict[str, Any], gate_action: str = "appro
         labels=labels,
         run_id=str(state.get("run_id", "")),
         token_usage=token_usage,
+        # Evolution tracking fields
+        difficulty_level=state.get("difficulty_level", ""),
+        knowledge_used=state.get("knowledge_used", []),
+        first_fix_success=state.get("first_fix_success"),
+        iteration_count=state.get("iteration_count", 0),
     )
 
 

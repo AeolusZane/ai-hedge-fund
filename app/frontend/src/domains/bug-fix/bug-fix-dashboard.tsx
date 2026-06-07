@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Bug, ExternalLink, History, Play, RefreshCw, CheckCircle2, XCircle, Clock, ChevronRight, Lightbulb, TrendingUp, Tag, Zap, Code2, FileCode, Check } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Bug, ExternalLink, History, Play, RefreshCw, CheckCircle2, XCircle, Clock, ChevronRight, Lightbulb, TrendingUp, Tag, Zap, Code2, FileCode, Check, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -75,6 +76,7 @@ const statusConfig: Record<string, { icon: React.ReactNode; color: string; label
 };
 
 export function BugFixDashboard() {
+  const navigate = useNavigate();
   const [bugs, setBugs] = useState<JiraBug[]>([]);
   const [runs, setRuns] = useState<BugFixRun[]>([]);
   const [loading, setLoading] = useState(false);
@@ -214,9 +216,15 @@ export function BugFixDashboard() {
             <Bug className="h-5 w-5 text-red-500" />
             <h1 className="text-lg font-bold">Bug Fix</h1>
           </div>
-          <Button onClick={() => { fetchBugs(); fetchRuns(); }} variant="ghost" size="icon" className="h-8 w-8">
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button onClick={() => navigate('/evolution')} variant="ghost" size="sm" className="h-8 text-xs gap-1">
+              <Activity className="h-3.5 w-3.5" />
+              Evolution
+            </Button>
+            <Button onClick={() => { fetchBugs(); fetchRuns(); }} variant="ghost" size="icon" className="h-8 w-8">
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         </div>
       </header>
 

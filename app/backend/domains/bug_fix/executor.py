@@ -110,6 +110,8 @@ def _is_fork_url(url: str) -> bool:
 async def _extract_lesson(exp: Any) -> tuple[str, list[str]]:
     """Use LLM to distill a reusable lesson from a bug fix experience.
 
+    Incorporates feedback from previously low-rated lessons to improve quality.
+
     Returns:
         Tuple of (lesson_text, tags_list). Empty strings/list on failure.
     """
@@ -125,6 +127,29 @@ async def _extract_lesson(exp: Any) -> tuple[str, list[str]]:
     model_name = os.getenv("BUG_FIX_ANALYZE_MODEL", "claude-sonnet-4-6")
     llm = get_model(model_name, provider)
 
+    # Gather feedback from low-rated experiences to guide lesson extraction
+    feedback_guidance = ""
+    try:
+        from app.backend.domains.bug_fix.experience_store import ExperienceStore
+        store = ExperienceStore()
+        low_rated, _ = store.list_experiences(min_rating=1, limit=5, reviewed_only=True)
+        low_rated = [e for e in low_rated if e.human_rating is not None and e.human_rating <= 2]
+        if low_rated:
+            feedback_items = []
+            for e in low_rated[:3]:
+                feedback_items.append(
+                    f"- Lesson \"{e.lesson}\" was rated {e.human_rating}/5. "
+                    f"Feedback: {e.human_feedback or '(no feedback)'}"
+                )
+            feedback_guidance = f"""
+## Previous Low-Rated Lessons (AVOID these patterns)
+{chr(10).join(feedback_items)}
+
+Learn from these mistakes. Make your lesson more specific, actionable, and focused on the root cause pattern.
+"""
+    except Exception:
+        pass  # Non-fatal
+
     prompt = f"""You are a senior engineer reviewing a completed bug fix. Extract ONE reusable lesson.
 
 ## Bug Fix Summary
@@ -133,7 +158,7 @@ async def _extract_lesson(exp: Any) -> tuple[str, list[str]]:
 - **Root cause**: {exp.root_cause}
 - **Fix strategy**: {exp.patch_strategy}
 - **Files changed**: {', '.join(exp.files_changed) if exp.files_changed else '(not recorded)'}
-
+{feedback_guidance}
 ## Task
 Write ONE lesson that answers: "Next time you encounter a similar problem, what should you check first?"
 
@@ -141,7 +166,8 @@ Rules:
 1. One sentence, max 80 words
 2. NO specific file names, variable names, or code — abstract to the pattern level
 3. Focus on the *root cause pattern*, not the fix details
-4. Give 2-4 short tags for future retrieval (e.g. "auth", "null-check", "concurrency")
+4. Be SPECIFIC — "check for null values" is too vague; "when a service method accesses a nested property from an optional parameter, add a null guard at the entry point" is good
+5. Give 2-4 short tags for future retrieval (e.g. "auth", "null-check", "concurrency")
 
 Output ONLY valid JSON (no markdown fences):
 {{"lesson": "your one-sentence lesson here", "tags": ["tag1", "tag2"]}}"""
@@ -756,6 +782,46 @@ class BugFixExecutor(WorkflowExecutor):
                 done_payload["experience_id"] = exp_id
                 done_payload["lesson"] = exp.lesson
                 done_payload["lesson_tags"] = exp.lesson_tags
+
+                # ── Evolution Metrics: record per-run metrics ──
+                try:
+                    # Calculate cumulative metrics
+                    total_metrics = store.get_metrics_timeline(limit=10000)
+                    total_runs = len(total_metrics) + 1
+                    success_count = sum(
+                        1 for m in total_metrics if m.get("first_fix_success") == 1
+                    ) + (1 if state.get("first_fix_success") == 1 else 0)
+                    total_iterations = sum(
+                        m.get("iteration_count", 0) for m in total_metrics
+                    ) + exp.iteration_count
+                    total_knowledge = sum(
+                        m.get("knowledge_used", 0) for m in total_metrics if m.get("knowledge_recalled", 0) > 0
+                    )
+                    total_recalled = sum(
+                        m.get("knowledge_recalled", 0) for m in total_metrics if m.get("knowledge_recalled", 0) > 0
+                    )
+
+                    store.record_metrics({
+                        "run_id": str(state.get("run_id", "")),
+                        "experience_id": exp_id,
+                        "difficulty_level": exp.difficulty_level,
+                        "first_fix_success": exp.first_fix_success,
+                        "iteration_count": exp.iteration_count,
+                        "duration_seconds": exp.duration_seconds,
+                        "knowledge_recalled": len(state.get("recalled_experiences", [])),
+                        "knowledge_used": len(exp.knowledge_used),
+                        "code_cache_hit": state.get("code_cache_hit", 0),
+                        "code_cache_miss": state.get("code_cache_miss", 0),
+                        "cumulative_first_fix_rate": success_count / total_runs if total_runs > 0 else 0,
+                        "cumulative_avg_iterations": total_iterations / total_runs if total_runs > 0 else 0,
+                        "cumulative_knowledge_utilization": total_knowledge / total_recalled if total_recalled > 0 else 0,
+                    })
+                except Exception as me:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        f"Failed to record evolution metrics (non-fatal): {me}"
+                    )
+
                 # Emit a progress event so the frontend knows
                 context.emit(ProgressEvent(
                     node_id=node_id,
