@@ -238,7 +238,18 @@ export async function getHealthScore(): Promise<HealthScore> {
 // PR Feedback Sync
 export async function syncPrFeedback(
   experienceId: number
-): Promise<{ synced: boolean; rating?: number; feedback?: string; author?: string; message?: string }> {
+): Promise<{
+  synced: boolean;
+  rating?: number;
+  difficulty?: string;
+  sentiment?: string;
+  feedback?: string;
+  lesson?: string;
+  lesson_tags?: string[];
+  key_concerns?: string[];
+  reviewers?: string[];
+  message?: string;
+}> {
   return fetchJson(`/evolution/sync-pr-feedback/${experienceId}`, { method: 'POST' });
 }
 

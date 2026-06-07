@@ -151,16 +151,21 @@ function RunsTimelinePanel() {
     try {
       const result = await syncPrFeedback(run.id);
       if (result.synced) {
-        setSyncMessage({ type: 'success', text: `Synced: ${result.rating ?? '?'} stars from ${result.author ?? 'PR'}` });
+        const sentimentEmoji = result.sentiment === 'positive' ? '👍' : result.sentiment === 'negative' ? '👎' : '😐';
+        const lessonText = result.lesson ? ` · Lesson: "${result.lesson.slice(0, 60)}${result.lesson.length > 60 ? '...' : ''}"` : '';
+        setSyncMessage({
+          type: 'success',
+          text: `${sentimentEmoji} Rating ${result.rating}/5 (${result.sentiment})${lessonText}`,
+        });
       } else {
-        setSyncMessage({ type: 'info', text: result.message || 'No feedback found on PR yet' });
+        setSyncMessage({ type: 'info', text: result.message || 'No reviewer comments found on PR yet' });
       }
       loadRuns();
     } catch (e) {
-      setSyncMessage({ type: 'info', text: 'Sync failed — PR may not have feedback comments yet' });
+      setSyncMessage({ type: 'info', text: 'Sync failed — PR may not have review comments yet' });
     } finally {
       setSyncingId(null);
-      setTimeout(() => setSyncMessage(null), 4000);
+      setTimeout(() => setSyncMessage(null), 6000);
     }
   };
 

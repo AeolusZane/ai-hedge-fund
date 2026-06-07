@@ -1005,12 +1005,13 @@ class BugFixExecutor(WorkflowExecutor):
                         pr_project=project,
                         pr_repo=repo,
                     )
-                    # Post feedback template comment on the PR
+                    # Post marker comment on the PR
                     await post_feedback_template(
                         project=project,
                         repo=repo,
                         pr_id=int(pr_id),
                         experience_id=exp_id,
+                        issue_key=issue_key,
                     )
                     done_payload["pr_feedback_template_posted"] = True
             except Exception as e:
