@@ -77,6 +77,13 @@ class Experience:
     first_fix_success: Optional[int] = None  # 0=failed, 1=success, NULL=unknown
     iteration_count: int = 0  # Number of iterations to fix
 
+    # PR linkage — feedback is collected on the PR, not in the dashboard
+    pr_url: str = ""  # Full URL to the Bitbucket PR
+    pr_id: Optional[int] = None  # Bitbucket PR numeric ID
+    pr_project: str = ""  # Bitbucket project key
+    pr_repo: str = ""  # Bitbucket repo slug
+    pr_feedback_synced_at: Optional[str] = None  # Last time PR comments were synced
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -236,6 +243,28 @@ class ExperienceStore:
             except sqlite3.OperationalError:
                 pass
 
+            # PR linkage columns — feedback collected on PR comments
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN pr_url TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN pr_id INTEGER DEFAULT NULL")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN pr_project TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN pr_repo TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE experiences ADD COLUMN pr_feedback_synced_at TEXT DEFAULT NULL")
+            except sqlite3.OperationalError:
+                pass
+
             # Evolution metrics table — tracks per-run metrics over time
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS evolution_metrics (
@@ -301,8 +330,9 @@ class ExperienceStore:
                     run_id, duration_seconds, token_usage, search_text,
                     lesson, lesson_tags, lesson_applied,
                     human_rating, human_feedback, difficulty_level,
-                    knowledge_used, reviewed_at, first_fix_success, iteration_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    knowledge_used, reviewed_at, first_fix_success, iteration_count,
+                    pr_url, pr_id, pr_project, pr_repo, pr_feedback_synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     now, exp.issue_key, exp.issue_summary, exp.issue_description,
                     exp.bug_type, exp.root_cause, exp.root_cause_hypothesis,
@@ -317,6 +347,8 @@ class ExperienceStore:
                     exp.human_rating, exp.human_feedback, exp.difficulty_level,
                     json.dumps(exp.knowledge_used), exp.reviewed_at,
                     exp.first_fix_success, exp.iteration_count,
+                    exp.pr_url, exp.pr_id, exp.pr_project, exp.pr_repo,
+                    exp.pr_feedback_synced_at,
                 ),
             )
             conn.commit()
@@ -784,6 +816,86 @@ class ExperienceStore:
             conn.close()
 
     # ─── Evolution tracking methods ──────────────────────────────────
+
+    def update_pr_info(
+        self,
+        exp_id: int,
+        pr_url: str,
+        pr_id: int,
+        pr_project: str,
+        pr_repo: str,
+    ) -> bool:
+        """Link an experience to its Bitbucket PR for feedback collection."""
+        conn = self._connect()
+        try:
+            cursor = conn.execute(
+                """UPDATE experiences
+                   SET pr_url = ?, pr_id = ?, pr_project = ?, pr_repo = ?
+                   WHERE id = ?""",
+                (pr_url, pr_id, pr_project, pr_repo, exp_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    def sync_pr_feedback(
+        self,
+        exp_id: int,
+        rating: Optional[int],
+        feedback: str,
+        synced_at: str,
+    ) -> bool:
+        """Update experience with feedback extracted from PR comments."""
+        conn = self._connect()
+        try:
+            updates = {"pr_feedback_synced_at": synced_at}
+            if rating is not None:
+                updates["human_rating"] = rating
+                updates["reviewed_at"] = synced_at
+            if feedback:
+                # Append new feedback rather than replace (PR may have multiple comments)
+                existing = conn.execute(
+                    "SELECT human_feedback FROM experiences WHERE id = ?", (exp_id,)
+                ).fetchone()
+                old = (existing["human_feedback"] if existing else "") or ""
+                if old and feedback and feedback not in old:
+                    updates["human_feedback"] = f"{old}\n---\n{feedback}"
+                else:
+                    updates["human_feedback"] = feedback or old
+
+            set_clause = ", ".join(f"{k} = ?" for k in updates)
+            values = list(updates.values()) + [exp_id]
+            cursor = conn.execute(
+                f"UPDATE experiences SET {set_clause} WHERE id = ?", values
+            )
+            conn.commit()
+
+            # Also sync rating to evolution_metrics
+            if rating is not None and cursor.rowcount > 0:
+                conn.execute(
+                    "UPDATE evolution_metrics SET human_rating = ? WHERE experience_id = ?",
+                    (rating, exp_id),
+                )
+                conn.commit()
+
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    def get_unreviewed_with_pr(self) -> list[Experience]:
+        """Get experiences that have a PR but no human rating yet."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM experiences
+                   WHERE pr_url != '' AND pr_id IS NOT NULL
+                     AND human_rating IS NULL
+                   ORDER BY created_at DESC"""
+            ).fetchall()
+            return [Experience.from_row(r) for r in rows]
+        finally:
+            conn.close()
 
     def submit_feedback(
         self,

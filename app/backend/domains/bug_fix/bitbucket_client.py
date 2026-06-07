@@ -352,3 +352,92 @@ async def get_pr_diff(
             )
 
         return response.text
+
+
+async def get_pr_comments(
+    *,
+    project: str,
+    repo: str,
+    pr_id: int,
+) -> list[dict[str, Any]]:
+    """Get all comments on a pull request from Bitbucket.
+
+    Uses the activities endpoint to get COMMENTED activities,
+    then extracts the comment text and author.
+
+    Args:
+        project: Bitbucket project key
+        repo: Repository slug
+        pr_id: Pull request ID
+
+    Returns:
+        List of comment dicts with keys: id, author, text, created_date, updated_date
+    """
+    activities = await get_pr_activities(project=project, repo=repo, pr_id=pr_id)
+
+    comments = []
+    for activity in activities:
+        if activity.get("action") != "COMMENTED":
+            continue
+        comment = activity.get("comment", {})
+        if not comment:
+            continue
+        comments.append({
+            "id": comment.get("id"),
+            "author": comment.get("author", {}).get("name", ""),
+            "author_display": comment.get("author", {}).get("displayName", ""),
+            "text": comment.get("text", ""),
+            "created_date": comment.get("createdDate"),
+            "updated_date": comment.get("updatedDate"),
+            # Inline comments have a commentAnchor with file path and line
+            "anchor": comment.get("commentAnchor"),
+        })
+
+    return comments
+
+
+async def post_pr_comment(
+    *,
+    project: str,
+    repo: str,
+    pr_id: int,
+    text: str,
+) -> dict[str, Any]:
+    """Post a top-level comment on a pull request.
+
+    Args:
+        project: Bitbucket project key
+        repo: Repository slug
+        pr_id: Pull request ID
+        text: Comment text (supports markdown)
+
+    Returns:
+        Dict with comment details
+    """
+    base_url, token, _ = _get_bitbucket_config()
+    url = f"{base_url}/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{pr_id}/comments"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    body = {"text": text}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.post(url, json=body, headers=headers)
+        except httpx.RequestError as e:
+            raise BitbucketMcpToolError(f"Bitbucket API request failed: {e}") from e
+
+        if response.status_code == 401:
+            raise BitbucketMcpToolError("Bitbucket API authentication failed (401)")
+        if response.status_code not in (200, 201):
+            raise BitbucketMcpToolError(
+                f"Bitbucket API error {response.status_code}: {response.text[:500]}"
+            )
+
+        try:
+            return response.json()
+        except Exception as e:
+            raise BitbucketMcpToolError(f"Failed to parse Bitbucket response: {e}") from e

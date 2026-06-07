@@ -22,6 +22,9 @@ export interface EvolutionRun {
   lesson: string;
   lesson_tags: string[];
   knowledge_used_count: number;
+  pr_url: string;
+  pr_id: number | null;
+  pr_feedback_synced_at: string | null;
 }
 
 export interface EvolutionRunDetail extends EvolutionRun {
@@ -39,6 +42,11 @@ export interface EvolutionRunDetail extends EvolutionRun {
   components: string[];
   labels: string[];
   run_id: string;
+  pr_url: string;
+  pr_id: number | null;
+  pr_project: string;
+  pr_repo: string;
+  pr_feedback_synced_at: string | null;
 }
 
 export interface EvolutionExperience {
@@ -225,4 +233,19 @@ export async function getMetricsSummary(): Promise<MetricsSummary> {
 // Health
 export async function getHealthScore(): Promise<HealthScore> {
   return fetchJson('/evolution/health');
+}
+
+// PR Feedback Sync
+export async function syncPrFeedback(
+  experienceId: number
+): Promise<{ synced: boolean; rating?: number; feedback?: string; author?: string; message?: string }> {
+  return fetchJson(`/evolution/sync-pr-feedback/${experienceId}`, { method: 'POST' });
+}
+
+export async function syncAllPrFeedback(): Promise<{
+  total_checked: number;
+  synced: number;
+  results: Array<{ experience_id: number; issue_key: string; synced: boolean; rating?: number }>;
+}> {
+  return fetchJson('/evolution/sync-pr-feedback', { method: 'POST' });
 }

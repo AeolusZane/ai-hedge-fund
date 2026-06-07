@@ -83,6 +83,9 @@ async def list_runs(
             "lesson": exp.lesson,
             "lesson_tags": exp.lesson_tags,
             "knowledge_used_count": len(exp.knowledge_used) if exp.knowledge_used else 0,
+            "pr_url": exp.pr_url,
+            "pr_id": exp.pr_id,
+            "pr_feedback_synced_at": exp.pr_feedback_synced_at,
         })
     
     return {"total": total, "runs": runs}
@@ -138,6 +141,13 @@ async def get_run_detail(experience_id: int):
         "labels": exp.labels,
         "run_id": exp.run_id,
         "created_at": exp.created_at,
+
+        # PR linkage
+        "pr_url": exp.pr_url,
+        "pr_id": exp.pr_id,
+        "pr_project": exp.pr_project,
+        "pr_repo": exp.pr_repo,
+        "pr_feedback_synced_at": exp.pr_feedback_synced_at,
     }
 
 
@@ -165,6 +175,44 @@ async def submit_feedback(experience_id: int, request: FeedbackRequest):
         "success": True,
         "experience_id": experience_id,
         "rating": request.rating,
+    }
+
+
+# ─── PR Feedback Sync Endpoints ────────────────────────────────────────────────
+
+@router.post("/sync-pr-feedback/{experience_id}")
+async def sync_single_pr_feedback(experience_id: int):
+    """Sync feedback from a specific PR's comments to the experience."""
+    from app.backend.domains.bug_fix.pr_feedback_sync import sync_pr_feedback
+
+    store = get_store()
+    exp = store.get_by_id(experience_id)
+    if not exp:
+        raise HTTPException(status_code=404, detail="Experience not found")
+    if not exp.pr_project or not exp.pr_repo or not exp.pr_id:
+        raise HTTPException(status_code=400, detail="Experience has no linked PR")
+
+    result = await sync_pr_feedback(
+        project=exp.pr_project,
+        repo=exp.pr_repo,
+        pr_id=exp.pr_id,
+        experience_id=experience_id,
+        store=store,
+    )
+    return result
+
+
+@router.post("/sync-pr-feedback")
+async def sync_all_pr_feedback():
+    """Sync feedback from all pending PRs (experiences with PR but no rating)."""
+    from app.backend.domains.bug_fix.pr_feedback_sync import sync_all_pending
+
+    results = await sync_all_pending()
+    synced = sum(1 for r in results if r.get("synced"))
+    return {
+        "total_checked": len(results),
+        "synced": synced,
+        "results": results,
     }
 
 

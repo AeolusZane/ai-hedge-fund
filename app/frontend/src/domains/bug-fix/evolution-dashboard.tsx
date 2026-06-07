@@ -4,7 +4,8 @@ import {
   Activity, Brain, CheckCircle2, ChevronDown, ChevronRight, ChevronLeft, Clock,
   Edit3, ExternalLink, Filter, Lightbulb, Search, Star, Tag,
   TrendingDown, TrendingUp, Trash2, X, Zap, AlertTriangle, BarChart3,
-  BookOpen, Target, ArrowUp, ArrowDown, Minus, MessageSquare, Bug
+  BookOpen, Target, ArrowUp, ArrowDown, Minus, MessageSquare, Bug,
+  RefreshCw, GitPullRequest
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,6 +32,8 @@ import {
   getMetricsTimeline,
   getMetricsSummary,
   getHealthScore,
+  syncPrFeedback,
+  syncAllPrFeedback,
 } from './evolution-api';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -109,11 +112,9 @@ function RunsTimelinePanel() {
   const [difficultyFilter, setDifficultyFilter] = useState('');
   const [reviewFilter, setReviewFilter] = useState<'all' | 'reviewed' | 'pending'>('all');
   const [selectedRun, setSelectedRun] = useState<EvolutionRunDetail | null>(null);
-  const [feedbackDialog, setFeedbackDialog] = useState<{ run: EvolutionRun; open: boolean }>({
-    run: {} as EvolutionRun,
-    open: false,
-  });
-  const [feedbackForm, setFeedbackForm] = useState({ rating: 4, feedback: '', difficulty: '' });
+  const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [syncAll, setSyncAll] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'info'; text: string } | null>(null);
 
   const loadRuns = useCallback(async () => {
     setLoading(true);
@@ -144,28 +145,40 @@ function RunsTimelinePanel() {
     }
   };
 
-  const handleSubmitFeedback = async () => {
-    if (!feedbackDialog.run?.id) return;
+  const handleSyncPrFeedback = async (run: EvolutionRun) => {
+    if (!run.pr_id) return;
+    setSyncingId(run.id);
     try {
-      await submitFeedback(feedbackDialog.run.id, {
-        rating: feedbackForm.rating,
-        feedback: feedbackForm.feedback,
-        difficulty: feedbackForm.difficulty,
-      });
-      setFeedbackDialog({ run: {} as EvolutionRun, open: false });
+      const result = await syncPrFeedback(run.id);
+      if (result.synced) {
+        setSyncMessage({ type: 'success', text: `Synced: ${result.rating ?? '?'} stars from ${result.author ?? 'PR'}` });
+      } else {
+        setSyncMessage({ type: 'info', text: result.message || 'No feedback found on PR yet' });
+      }
       loadRuns();
     } catch (e) {
-      console.error('Failed to submit feedback:', e);
+      setSyncMessage({ type: 'info', text: 'Sync failed — PR may not have feedback comments yet' });
+    } finally {
+      setSyncingId(null);
+      setTimeout(() => setSyncMessage(null), 4000);
     }
   };
 
-  const openFeedback = (run: EvolutionRun) => {
-    setFeedbackForm({
-      rating: run.human_rating || 4,
-      feedback: run.human_feedback || '',
-      difficulty: run.difficulty_level || '',
-    });
-    setFeedbackDialog({ run, open: true });
+  const handleSyncAll = async () => {
+    setSyncAll(true);
+    try {
+      const result = await syncAllPrFeedback();
+      setSyncMessage({
+        type: result.synced > 0 ? 'success' : 'info',
+        text: `Checked ${result.total_checked} PRs, synced ${result.synced} feedback`,
+      });
+      loadRuns();
+    } catch (e) {
+      setSyncMessage({ type: 'info', text: 'Bulk sync failed' });
+    } finally {
+      setSyncAll(false);
+      setTimeout(() => setSyncMessage(null), 5000);
+    }
   };
 
   const filteredRuns = reviewFilter === 'pending'
@@ -211,6 +224,17 @@ function RunsTimelinePanel() {
             </Button>
           ))}
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSyncAll}
+          disabled={syncAll}
+          className="text-xs flex items-center gap-1"
+          title="Sync feedback from all PRs"
+        >
+          <RefreshCw className={`h-3 w-3 ${syncAll ? 'animate-spin' : ''}`} />
+          Sync PRs
+        </Button>
         <span className="text-xs text-gray-500 ml-auto">
           {filteredRuns.length} of {total} runs
         </span>
@@ -289,25 +313,40 @@ function RunsTimelinePanel() {
                     )}
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleViewDetail(run)}
-                      className="text-xs"
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openFeedback(run)}
-                      className="text-xs"
-                    >
-                      <MessageSquare className="h-4 w-4" />
-                    </Button>
-                  </div>
+                   {/* Actions */}
+                   <div className="flex items-center gap-1 shrink-0">
+                     <Button
+                       variant="ghost"
+                       size="sm"
+                       onClick={() => handleViewDetail(run)}
+                       className="text-xs"
+                     >
+                       <ChevronRight className="h-4 w-4" />
+                     </Button>
+                     {run.pr_url && (
+                       <Button
+                         variant="ghost"
+                         size="sm"
+                         onClick={() => window.open(run.pr_url, '_blank')}
+                         className="text-xs"
+                         title="Open PR in Bitbucket"
+                       >
+                         <GitPullRequest className="h-4 w-4" />
+                       </Button>
+                     )}
+                     {run.pr_id && !run.human_rating && (
+                       <Button
+                         variant="ghost"
+                         size="sm"
+                         onClick={() => handleSyncPrFeedback(run)}
+                         disabled={syncingId === run.id}
+                         className="text-xs"
+                         title="Sync feedback from PR"
+                       >
+                         <RefreshCw className={`h-4 w-4 ${syncingId === run.id ? 'animate-spin' : ''}`} />
+                       </Button>
+                     )}
+                   </div>
                 </div>
               </CardContent>
             </Card>
@@ -387,77 +426,70 @@ function RunsTimelinePanel() {
                   )}
                 </div>
               )}
+
+              {/* PR Linkage */}
+              {selectedRun.pr_url && (
+                <div>
+                  <h5 className="font-medium text-xs text-gray-500 uppercase mb-1">Pull Request</h5>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={selectedRun.pr_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      <GitPullRequest className="h-3 w-3" />
+                      PR #{selectedRun.pr_id}
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                    {selectedRun.pr_feedback_synced_at && (
+                      <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                        Feedback synced
+                      </Badge>
+                    )}
+                    {selectedRun.pr_id && !selectedRun.human_rating && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs h-6"
+                        onClick={() => {
+                          handleSyncPrFeedback(selectedRun);
+                          setSelectedRun(null);
+                        }}
+                      >
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                        Sync from PR
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Feedback is collected on the PR. Review code there and leave a rating comment.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Feedback Dialog */}
-      <Dialog open={feedbackDialog.open} onOpenChange={(open) => setFeedbackDialog({ ...feedbackDialog, open })}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rate This Fix</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">Rating</label>
-              <div className="mt-1">
-                <StarRating value={feedbackForm.rating} onChange={(v) => setFeedbackForm({ ...feedbackForm, rating: v })} />
-                <p className="text-xs text-gray-500 mt-1">{RATING_LABELS[feedbackForm.rating]}</p>
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Difficulty Level</label>
-              <div className="flex gap-1 mt-1">
-                {['L1', 'L2', 'L3', 'L4'].map((level) => (
-                  <Button
-                    key={level}
-                    variant={feedbackForm.difficulty === level ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setFeedbackForm({ ...feedbackForm, difficulty: level })}
-                  >
-                    {level}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Feedback</label>
-              <textarea
-                className="w-full mt-1 p-2 border rounded text-sm min-h-[80px] resize-none"
-                placeholder="What was good? What could be improved? Any guidance for next time?"
-                value={feedbackForm.feedback}
-                onChange={(e) => setFeedbackForm({ ...feedbackForm, feedback: e.target.value })}
-              />
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {['Fix is correct', 'Right direction but poor execution', 'Wrong root cause', 'Introduced regression', 'Missed edge case'].map((tag) => (
-                <Button
-                  key={tag}
-                  variant="outline"
-                  size="sm"
-                  className="text-xs"
-                  onClick={() => {
-                    const current = feedbackForm.feedback;
-                    setFeedbackForm({
-                      ...feedbackForm,
-                      feedback: current ? `${current}; ${tag}` : tag,
-                    });
-                  }}
-                >
-                  {tag}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setFeedbackDialog({ ...feedbackDialog, open: false })}>
-              Cancel
-            </Button>
-            <Button onClick={handleSubmitFeedback}>Submit</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+       {/* Sync Message Toast */}
+       {syncMessage && (
+         <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${
+           syncMessage.type === 'success'
+             ? 'bg-green-50 text-green-700 border border-green-200'
+             : 'bg-blue-50 text-blue-700 border border-blue-200'
+         }`}>
+           {syncMessage.type === 'success' ? (
+             <CheckCircle2 className="h-4 w-4" />
+           ) : (
+             <AlertTriangle className="h-4 w-4" />
+           )}
+           {syncMessage.text}
+           <Button variant="ghost" size="sm" className="ml-auto h-6 w-6 p-0" onClick={() => setSyncMessage(null)}>
+             <X className="h-3 w-3" />
+           </Button>
+         </div>
+       )}
     </div>
   );
 }

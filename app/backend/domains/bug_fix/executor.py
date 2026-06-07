@@ -983,6 +983,42 @@ class BugFixExecutor(WorkflowExecutor):
         state["open_pr"] = result
         done_payload.update({"branch": result.get("branch")})
 
+        # ── PR Feedback: post template + link experience to PR ──
+        pr_id = result.get("id")
+        pr_url = result.get("url", "")
+        if pr_id and project and repo:
+            try:
+                from app.backend.domains.bug_fix.pr_feedback_sync import (
+                    post_feedback_template,
+                )
+                from app.backend.domains.bug_fix.experience_store import ExperienceStore
+
+                # Find the experience we just stored for this run
+                store = ExperienceStore()
+                exp_id = done_payload.get("experience_id")
+                if exp_id:
+                    # Link experience to PR
+                    store.update_pr_info(
+                        exp_id=exp_id,
+                        pr_url=pr_url,
+                        pr_id=int(pr_id),
+                        pr_project=project,
+                        pr_repo=repo,
+                    )
+                    # Post feedback template comment on the PR
+                    await post_feedback_template(
+                        project=project,
+                        repo=repo,
+                        pr_id=int(pr_id),
+                        experience_id=exp_id,
+                    )
+                    done_payload["pr_feedback_template_posted"] = True
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Failed to post PR feedback template (non-fatal): {e}"
+                )
+
     async def _commit_and_push(
         self,
         *,
