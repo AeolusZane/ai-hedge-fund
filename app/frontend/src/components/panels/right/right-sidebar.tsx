@@ -5,8 +5,6 @@ import { useResizable } from '@/hooks/use-resizable';
 import { cn } from '@/lib/utils';
 import { useStepDetailTarget } from '@/domains/bug-fix/step-detail-context';
 import { StepDetailPanel } from '@/domains/bug-fix/step-detail-panel';
-import { BuilderChatPanel } from '@/domains/agent-builder/builder-chat-panel';
-import { useAgentBuilder } from '@/domains/agent-builder/agent-builder-context';
 import { ReactNode, useEffect, useState } from 'react';
 import { ComponentActions } from './component-actions';
 import { ComponentList } from './component-list';
@@ -40,10 +38,6 @@ export function RightSidebar({
   // Step detail target — when set, sidebar switches to detail mode
   const stepDetailTarget = useStepDetailTarget();
   const isDetailMode = stepDetailTarget !== null;
-
-  // Agent builder chat mode
-  const { activeNodeId } = useAgentBuilder();
-  const isBuilderMode = activeNodeId !== null;
 
   // Auto-expand sidebar when a step detail is opened
   useEffect(() => {
@@ -106,8 +100,6 @@ export function RightSidebar({
       {/* Detail mode: show Step Detail Panel */}
       {isDetailMode ? (
         <StepDetailPanel />
-      ) : isBuilderMode ? (
-        <BuilderChatPanel />
       ) : (
         <>
           <ComponentActions />

@@ -4,7 +4,6 @@ import { RightSidebar } from '@/components/panels/right/right-sidebar';
 import { TabBar } from '@/components/tabs/tab-bar';
 import { TabContent } from '@/components/tabs/tab-content';
 import { SidebarProvider } from '@/components/ui/sidebar';
-import { AgentBuilderProvider } from '@/domains/agent-builder/agent-builder-context';
 import { DomainProvider } from '@/core/contexts/domain-context';
 import { FlowProvider, useFlowContext } from '@/contexts/flow-context';
 import { LayoutProvider, useLayoutContext } from '@/contexts/layout-context';
@@ -194,9 +193,7 @@ export function Layout({ children }: LayoutProps) {
           <FlowProvider>
             <TabsProvider>
               <LayoutProvider>
-                <AgentBuilderProvider>
-                  <LayoutContent>{children}</LayoutContent>
-                </AgentBuilderProvider>
+                <LayoutContent>{children}</LayoutContent>
               </LayoutProvider>
             </TabsProvider>
           </FlowProvider>
